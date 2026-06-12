@@ -1,0 +1,47 @@
+# Development artifacts
+*.pyc
+__pycache__/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Python virtual environments
+venv/
+env/
+ENV/
+
+# Analysis outputs
+analysis_results/
+*.log
+
+# Docker volumes (if persisted locally)
+prometheus_data/
+grafana_data/
+loki_data/
+tempo_data/
+
+# Temporary files
+tmp/
+temp/

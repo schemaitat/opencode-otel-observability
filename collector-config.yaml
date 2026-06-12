@@ -1,0 +1,47 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Add resource attributes for better analysis
+  resource:
+    attributes:
+      - key: environment
+        value: "production"
+        action: upsert
+
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+
+  debug:
+    verbosity: normal
+
+  otlphttp:
+    endpoint: http://loki:3100/otlp
+
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [resource]
+      exporters: [prometheus, debug]
+
+    logs:
+      receivers: [otlp]
+      processors: [resource]
+      exporters: [debug, otlphttp]
+
+    traces:
+      receivers: [otlp]
+      processors: [resource]
+      exporters: [otlp/tempo, debug]

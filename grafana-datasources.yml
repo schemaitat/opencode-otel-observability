@@ -1,0 +1,30 @@
+apiVersion: 1
+
+datasources:
+  - name: prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+
+  - name: tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+        filterByTraceID: false
+        filterBySpanID: false
+        customQuery: true
+        query: '{service_name="opencode"} | session_id="$${__span.tags["session.id"]}"'
