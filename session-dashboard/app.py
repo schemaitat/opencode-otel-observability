@@ -157,6 +157,7 @@ def load_session(session_id, _n_intervals):
         xaxis_title="Time",
         yaxis_title=None,
         showlegend=True,
+        uirevision=session_id,
     )
 
     narrative = [html.P(dcc.Markdown(line)) for line in build_narrative(spans)]
