@@ -1,0 +1,22 @@
+/* dcc.Dropdown is rendered via react-select and doesn't pick up the
+   Bootstrap DARKLY theme automatically, so re-style it manually. */
+.Select-control,
+.Select-menu-outer,
+.VirtualizedSelectOption,
+div[class*="-control"],
+div[class*="-menu"] {
+    background-color: #303030 !important;
+    color: #fff !important;
+    border-color: #444 !important;
+}
+
+div[class*="-singleValue"],
+div[class*="-placeholder"],
+div[class*="-input"] input {
+    color: #fff !important;
+}
+
+div[class*="-option"]:hover,
+.VirtualizedSelectFocusedOption {
+    background-color: #444 !important;
+}

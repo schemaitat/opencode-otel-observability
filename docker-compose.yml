@@ -56,11 +56,10 @@ services:
     container_name: session-dashboard
     environment:
       - TEMPO_URL=http://tempo:3200
-      - PROMETHEUS_URL=http://prometheus:9090
     ports:
       - "8050:8050"
     restart: unless-stopped
-    depends_on: [tempo, prometheus]
+    depends_on: [tempo]
     networks:
       - otel-network
 
@@ -71,8 +70,6 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_FEATURE_TOGGLES_ENABLE=logsSampleInExplore
-      - GF_INSTALL_PLUGINS=auxmoney-waterfall-panel
-      - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=auxmoney-waterfall-panel
     volumes:
       - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
       - ./grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
