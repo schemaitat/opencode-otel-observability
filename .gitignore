@@ -31,6 +31,7 @@ Thumbs.db
 venv/
 env/
 ENV/
+.venv/
 
 # Analysis outputs
 analysis_results/
@@ -45,3 +46,7 @@ tempo_data/
 # Temporary files
 tmp/
 temp/
+.tmp/
+
+# Local opencode plugin overrides (machine-specific absolute paths)
+.opencode/

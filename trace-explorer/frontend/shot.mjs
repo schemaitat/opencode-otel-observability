@@ -1,0 +1,11 @@
+import { chromium } from 'playwright-core';
+const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
+const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+const errors = [];
+page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+page.on('pageerror', err => errors.push(String(err)));
+await page.goto('http://localhost:5173');
+await page.waitForTimeout(3000);
+await page.screenshot({ path: '/Users/andre/projects/opencode-otel-observability/.tmp/screenshot1.png', fullPage: false });
+console.log('ERRORS:', JSON.stringify(errors));
+await browser.close();
