@@ -10,6 +10,7 @@ export interface SessionSummary {
   models: string[];
   agents: string[];
   is_open: boolean;
+  parent_session_id: string | null;
 }
 
 export interface SpanAttributes {
@@ -33,6 +34,7 @@ export interface SpanAttributes {
   "session.is_open"?: boolean;
   "session.total_tokens"?: number;
   "session.total_cost_usd"?: number;
+  "subagent.session_id"?: string;
 }
 
 export interface Span {

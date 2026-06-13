@@ -47,6 +47,7 @@ Grafana (dashboards) + Session Explorer (standalone waterfall UI)
 | **Loki** | Log aggregation | 3100 | — |
 | **Tempo** | Trace storage | 3200 | http://localhost:3200 |
 | **Session Explorer** | Session waterfall UI | 8050 | http://localhost:8050 |
+| **Trace Explorer** | Per-session trace waterfall UI | 8060 | http://localhost:8060 |
 | **Grafana** | Dashboards | 3000 | http://localhost:3000 |
 
 ## Quick Start
@@ -92,6 +93,7 @@ Or use `just run-opencode` to launch `opencode` with these variables already set
 | http://localhost:9090 | Prometheus |
 | http://localhost:3200 | Tempo |
 | http://localhost:8050 | Session Explorer |
+| http://localhost:8060 | Trace Explorer |
 
 ## Metrics, Logs & Traces
 

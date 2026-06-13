@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy, X } from "lucide-react";
+import { ArrowRight, Check, Copy, X } from "lucide-react";
 import type { SessionSummary, Span, SpanKind } from "../types";
 import { spanKind, spanLabel } from "../types";
 import { formatCost, formatDuration, formatTimestamp, formatTokens } from "../format";
@@ -10,9 +10,10 @@ interface SpanDetailPanelProps {
   session: SessionSummary | null;
   query: string;
   onClose: () => void;
+  onOpenSession: (sessionId: string) => void;
 }
 
-export function SpanDetailPanel({ span, session, query, onClose }: SpanDetailPanelProps) {
+export function SpanDetailPanel({ span, session, query, onClose, onOpenSession }: SpanDetailPanelProps) {
   if (!span) {
     return (
       <div className="flex h-full w-[30rem] shrink-0 flex-col items-center justify-center border-l border-border bg-surface p-6 text-center text-sm text-text-muted">
@@ -49,6 +50,15 @@ export function SpanDetailPanel({ span, session, query, onClose }: SpanDetailPan
         )}
         {kind === "tool" && (
           <>
+            {attrs["subagent.session_id"] && (
+              <button
+                onClick={() => onOpenSession(attrs["subagent.session_id"]!)}
+                className="mb-3 flex w-full items-center justify-between rounded bg-surface-2 p-2 text-left text-xs font-medium text-accent hover:bg-border"
+              >
+                <span>Open subagent session</span>
+                <ArrowRight size={12} />
+              </button>
+            )}
             <Section title="Parameters" value={attrs["tool.parameters"] ?? attrs["input.value"]} query={query} />
             <Section title="Output" value={attrs["output.value"]} query={query} />
           </>

@@ -1,20 +1,14 @@
 import asyncio
 import base64
 import os
+import re
 import time
 
 import httpx
 
-TEMPO_URL = os.environ.get("TEMPO_URL", "http://tempo:3200")
+_TASK_ID_RE = re.compile(r"task_id:\s*(ses_\w+)")
 
-SUMMARY_ATTRS = [
-    ".session.id",
-    ".cost_usd",
-    ".llm.token_count.total",
-    ".llm.model_name",
-    ".agent.name",
-    ".tool.name",
-]
+TEMPO_URL = os.environ.get("TEMPO_URL", "http://tempo:3200")
 
 
 def _attr_value(value: dict):
@@ -49,7 +43,7 @@ async def _search(
     limit: int = 1000,
     range_seconds: int | None = None,
 ) -> list[dict]:
-    params: dict[str, int | str] = {"q": query, "limit": limit}
+    params: dict[str, int | str] = {"q": query, "limit": limit, "spss": 1000}
     if range_seconds is not None:
         now = int(time.time())
         params["start"] = now - range_seconds
@@ -74,8 +68,7 @@ async def list_sessions(range_seconds: int | None = None) -> list[dict]:
     last `range_seconds`, so large Tempo deployments don't require pulling
     the full history on every poll.
     """
-    select_clause = ", ".join(SUMMARY_ATTRS)
-    query = f'{{resource.service.name="opencode"}} | select({select_clause})'
+    query = '{resource.service.name="opencode"} | select(.session.id)'
     closed_query = '{resource.service.name="opencode" && name="opencode.session"} | select(.session.id)'
 
     async with httpx.AsyncClient() as client:
@@ -84,56 +77,80 @@ async def list_sessions(range_seconds: int | None = None) -> list[dict]:
             _search(client, closed_query, limit=4000, range_seconds=range_seconds),
         )
 
-    closed_session_ids: set[str] = set()
-    for trace in closed_traces:
-        span_set = trace.get("spanSet") or (trace.get("spanSets") or [{}])[0]
-        for span in span_set.get("spans", []):
-            session_id = _span_attrs(span).get("session.id")
-            if session_id:
-                closed_session_ids.add(session_id)
+        closed_session_ids: set[str] = set()
+        for trace in closed_traces:
+            span_set = trace.get("spanSet") or (trace.get("spanSets") or [{}])[0]
+            for span in span_set.get("spans", []):
+                session_id = _span_attrs(span).get("session.id")
+                if session_id:
+                    closed_session_ids.add(session_id)
+
+        # The search API truncates each trace's spanSet to a handful of spans
+        # (controlled by `spss`), which isn't enough to get accurate per-session
+        # call counts. Fetch each matching trace in full instead and aggregate
+        # from every span, the same way `get_session_spans` does.
+        trace_ids = sorted({t["traceID"] for t in traces})
+
+        semaphore = asyncio.Semaphore(10)
+
+        async def fetch(tid: str) -> list[dict]:
+            async with semaphore:
+                return await _get_trace(client, tid)
+
+        full_traces = await asyncio.gather(*(fetch(tid) for tid in trace_ids))
 
     sessions: dict[str, dict] = {}
+    parent_by_child: dict[str, str] = {}
 
-    for trace in traces:
-        span_set = trace.get("spanSet") or (trace.get("spanSets") or [{}])[0]
-        for span in span_set.get("spans", []):
-            attrs = _span_attrs(span)
-            session_id = attrs.get("session.id")
-            if not session_id:
-                continue
+    for batches in full_traces:
+        for batch in batches:
+            for scope_span in batch.get("scopeSpans", []):
+                for span in scope_span.get("spans", []):
+                    attrs = _span_attrs(span)
+                    session_id = attrs.get("session.id")
+                    if not session_id:
+                        continue
 
-            start_ns = int(span["startTimeUnixNano"])
-            duration_ns = int(span["durationNanos"])
-            end_ns = start_ns + duration_ns
+                    start_ns = int(span["startTimeUnixNano"])
+                    end_ns = int(span["endTimeUnixNano"])
 
-            s = sessions.setdefault(
-                session_id,
-                {
-                    "session_id": session_id,
-                    "start_ns": start_ns,
-                    "end_ns": end_ns,
-                    "llm_calls": 0,
-                    "tool_calls": 0,
-                    "total_cost_usd": 0.0,
-                    "total_tokens": 0,
-                    "models": set(),
-                    "agents": set(),
-                },
-            )
+                    s = sessions.setdefault(
+                        session_id,
+                        {
+                            "session_id": session_id,
+                            "start_ns": start_ns,
+                            "end_ns": end_ns,
+                            "llm_calls": 0,
+                            "tool_calls": 0,
+                            "total_cost_usd": 0.0,
+                            "total_tokens": 0,
+                            "models": set(),
+                            "agents": set(),
+                        },
+                    )
 
-            s["start_ns"] = min(s["start_ns"], start_ns)
-            s["end_ns"] = max(s["end_ns"], end_ns)
+                    s["start_ns"] = min(s["start_ns"], start_ns)
+                    s["end_ns"] = max(s["end_ns"], end_ns)
 
-            if attrs.get("llm.model_name") is not None:
-                s["llm_calls"] += 1
-                s["total_cost_usd"] += attrs.get("cost_usd") or 0
-                s["total_tokens"] += attrs.get("llm.token_count.total") or 0
-                s["models"].add(attrs["llm.model_name"])
-            elif attrs.get("tool.name") is not None:
-                s["tool_calls"] += 1
+                    if attrs.get("llm.model_name") is not None:
+                        s["llm_calls"] += 1
+                        s["total_cost_usd"] += attrs.get("cost_usd") or 0
+                        s["total_tokens"] += attrs.get("llm.token_count.total") or 0
+                        s["models"].add(attrs["llm.model_name"])
+                    elif attrs.get("tool.name") is not None:
+                        s["tool_calls"] += 1
 
-            if attrs.get("agent.name"):
-                s["agents"].add(attrs["agent.name"])
+                    if attrs.get("agent.name"):
+                        s["agents"].add(attrs["agent.name"])
+
+                    # A `task` tool call spawns a subagent in its own session; the
+                    # spawned session's ID is embedded in the result text (e.g.
+                    # "task_id: ses_... (for resuming...)"), letting us link the
+                    # subagent session back to the session that launched it.
+                    if attrs.get("tool.name") == "task":
+                        match = _TASK_ID_RE.search(attrs.get("output.value") or "")
+                        if match:
+                            parent_by_child[match.group(1)] = session_id
 
     now_ns = time.time_ns()
     result = []
@@ -141,6 +158,7 @@ async def list_sessions(range_seconds: int | None = None) -> list[dict]:
         s["models"] = sorted(s["models"])
         s["agents"] = sorted(s["agents"])
         s["is_open"] = s["session_id"] not in closed_session_ids
+        s["parent_session_id"] = parent_by_child.get(s["session_id"])
         if s["is_open"]:
             s["end_ns"] = max(s["end_ns"], now_ns)
         s["duration_ms"] = (s["end_ns"] - s["start_ns"]) / 1e6
@@ -183,6 +201,15 @@ async def get_session_spans(session_id: str) -> list[dict]:
                     attrs = _span_attrs(span)
                     if attrs.get("session.id") != session_id:
                         continue
+
+                    # A `task` tool call spawns a subagent in its own session; the
+                    # spawned session's ID is embedded in the result text (e.g.
+                    # "task_id: ses_... (for resuming...)"), so pull it out and
+                    # expose it as an attribute the frontend can link to.
+                    if attrs.get("tool.name") == "task":
+                        match = _TASK_ID_RE.search(attrs.get("output.value") or "")
+                        if match:
+                            attrs["subagent.session_id"] = match.group(1)
 
                     span_id = _to_hex(span["spanId"])
                     parent_id = _to_hex(span.get("parentSpanId"))

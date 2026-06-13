@@ -10,6 +10,7 @@ up: ## Start the observability stack
     @echo "Loki:             http://localhost:3100"
     @echo "Tempo:            http://localhost:3200"
     @echo "Session Explorer: http://localhost:8050"
+    @echo "Trace Explorer:   http://localhost:8060"
 
 down: ## Stop the observability stack
     docker compose down
@@ -34,6 +35,9 @@ logs-grafana: ## Show Grafana logs
 
 logs-session-dashboard: ## Show Session Explorer logs
     docker compose logs -f session-dashboard
+
+logs-trace-explorer: ## Show Trace Explorer logs
+    docker compose logs -f trace-explorer
 
 dev-session-dashboard: ## Run Session Explorer locally with hot reload (requires `just up`)
     cd session-dashboard && TEMPO_URL=http://localhost:3200 DASH_DEBUG=true uv run python app.py
@@ -68,6 +72,7 @@ status: ## Show stack status and service URLs
     @echo "Loki:             http://localhost:3100"
     @echo "Tempo:            http://localhost:3200"
     @echo "Session Explorer: http://localhost:8050"
+    @echo "Trace Explorer:   http://localhost:8060"
     @echo "Collector:        http://localhost:4317 (gRPC), http://localhost:4318 (HTTP)"
 
 run-opencode: ## Run opencode with OTLP telemetry pointed at this stack

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Filter } from "lucide-react";
+import { ChevronDown, ChevronRight, Filter } from "lucide-react";
 import type { SessionSummary } from "../types";
 import type { SessionRange } from "../api";
 import { formatCost, formatDuration, formatRelativeTime, formatTokens } from "../format";
@@ -25,6 +25,7 @@ interface SessionListProps {
 export function SessionList({ sessions, selectedSessionId, onSelect, loading, range, onRangeChange }: SessionListProps) {
   const [filter, setFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("recent");
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => {
     let list = sessions;
@@ -54,6 +55,37 @@ export function SessionList({ sessions, selectedSessionId, onSelect, loading, ra
     }
     return sorted;
   }, [sessions, filter, sortKey]);
+
+  // Group subagent sessions under the session that spawned them via a `task`
+  // tool call. A session is only treated as a child if its parent is also
+  // present in the filtered list, otherwise it's shown as a top-level entry.
+  const { topLevel, childrenOf } = useMemo(() => {
+    const ids = new Set(filtered.map((s) => s.session_id));
+    const childrenOf = new Map<string, SessionSummary[]>();
+    const top: SessionSummary[] = [];
+    for (const s of filtered) {
+      if (s.parent_session_id && ids.has(s.parent_session_id)) {
+        const list = childrenOf.get(s.parent_session_id) ?? [];
+        list.push(s);
+        childrenOf.set(s.parent_session_id, list);
+      } else {
+        top.push(s);
+      }
+    }
+    for (const list of childrenOf.values()) {
+      list.sort((a, b) => b.start_ns - a.start_ns);
+    }
+    return { topLevel: top, childrenOf };
+  }, [filtered]);
+
+  const toggleCollapsed = (sessionId: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+  };
 
   return (
     <div className="flex h-full w-80 shrink-0 flex-col border-r border-border bg-surface">
@@ -114,14 +146,32 @@ export function SessionList({ sessions, selectedSessionId, onSelect, loading, ra
         {!loading && filtered.length === 0 && (
           <div className="p-4 text-sm text-text-muted">No sessions found.</div>
         )}
-        {filtered.map((s) => (
-          <SessionRow
-            key={s.session_id}
-            session={s}
-            selected={s.session_id === selectedSessionId}
-            onSelect={() => onSelect(s.session_id)}
-          />
-        ))}
+        {topLevel.map((s) => {
+          const children = childrenOf.get(s.session_id) ?? [];
+          const isCollapsed = collapsed.has(s.session_id);
+          return (
+            <div key={s.session_id}>
+              <SessionRow
+                session={s}
+                selected={s.session_id === selectedSessionId}
+                onSelect={() => onSelect(s.session_id)}
+                childCount={children.length}
+                collapsed={isCollapsed}
+                onToggleCollapsed={() => toggleCollapsed(s.session_id)}
+              />
+              {!isCollapsed &&
+                children.map((c) => (
+                  <SessionRow
+                    key={c.session_id}
+                    session={c}
+                    selected={c.session_id === selectedSessionId}
+                    onSelect={() => onSelect(c.session_id)}
+                    nested
+                  />
+                ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -131,22 +181,47 @@ function SessionRow({
   session,
   selected,
   onSelect,
+  nested = false,
+  childCount = 0,
+  collapsed = false,
+  onToggleCollapsed,
 }: {
   session: SessionSummary;
   selected: boolean;
   onSelect: () => void;
+  nested?: boolean;
+  childCount?: number;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }) {
   const shortId = session.session_id.replace(/^ses_/, "");
 
   return (
     <button
       onClick={onSelect}
-      className={`block w-full border-b border-border px-3 py-2.5 text-left transition-colors ${
-        selected ? "bg-accent/15" : "hover:bg-surface-2"
-      }`}
+      className={`block w-full border-b border-border py-2.5 text-left transition-colors ${
+        nested ? "pl-7 pr-3" : "px-3"
+      } ${selected ? "bg-accent/15" : "hover:bg-surface-2"}`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate font-mono text-xs text-text-muted">{shortId}</span>
+        <span className="flex items-center gap-1 truncate font-mono text-xs text-text-muted">
+          {childCount > 0 && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCollapsed?.();
+              }}
+              className="shrink-0 rounded p-0.5 hover:bg-surface-2 hover:text-text"
+              title={collapsed ? "Show subagent session" : "Hide subagent session"}
+            >
+              {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+            </span>
+          )}
+          {nested && <span className="shrink-0 text-text-muted">↳</span>}
+          <span className="truncate">{shortId}</span>
+        </span>
         <span className="flex shrink-0 items-center gap-1 text-xs text-text-muted">
           {session.is_open && (
             <span className="flex items-center gap-1 rounded bg-success/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-success">

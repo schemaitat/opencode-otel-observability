@@ -63,6 +63,18 @@ services:
     networks:
       - otel-network
 
+  trace-explorer:
+    build: ./trace-explorer
+    container_name: trace-explorer
+    environment:
+      - TEMPO_URL=http://tempo:3200
+    ports:
+      - "8060:8060"
+    restart: unless-stopped
+    depends_on: [tempo]
+    networks:
+      - otel-network
+
   grafana:
     image: grafana/grafana-oss:latest
     container_name: grafana

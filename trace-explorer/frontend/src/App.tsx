@@ -5,6 +5,7 @@ import type { SessionRange } from "./api";
 import { usePolling } from "./hooks";
 import { SessionList } from "./components/SessionList";
 import { SessionStats } from "./components/SessionStats";
+import { SessionStatsPanel } from "./components/SessionStatsPanel";
 import { Waterfall } from "./components/Waterfall";
 import { SpanDetailPanel } from "./components/SpanDetailPanel";
 import type { Span } from "./types";
@@ -14,6 +15,7 @@ function App() {
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sessionRange, setSessionRange] = useState<SessionRange>("24h");
+  const [showStats, setShowStats] = useState(false);
 
   const { data: sessions = [], loading: sessionsLoading } = usePolling(
     () => fetchSessions(sessionRange),
@@ -34,9 +36,10 @@ function App() {
     }
   }, [sessions, selectedSessionId]);
 
-  // Clear span selection when switching sessions.
+  // Clear span selection and stats panel when switching sessions.
   useEffect(() => {
     setSelectedSpanId(null);
+    setShowStats(false);
   }, [selectedSessionId]);
 
   const selectedSession = sessions.find((s) => s.session_id === selectedSessionId);
@@ -72,10 +75,10 @@ function App() {
           onRangeChange={setSessionRange}
         />
 
-        <main className="flex min-w-[28rem] flex-1 flex-col overflow-hidden">
+        <main className="relative flex min-w-[28rem] flex-1 flex-col overflow-hidden">
           {selectedSession ? (
             <>
-              <SessionStats session={selectedSession} />
+              <SessionStats session={selectedSession} onShowStats={() => setShowStats(true)} />
               <Waterfall
                 spans={spans}
                 sessionId={selectedSessionId}
@@ -83,6 +86,7 @@ function App() {
                 onSelectSpan={(span) => setSelectedSpanId(span.span_id)}
                 searchQuery={searchQuery}
               />
+              {showStats && <SessionStatsPanel spans={spans} onClose={() => setShowStats(false)} />}
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center text-text-muted">
@@ -96,6 +100,10 @@ function App() {
           session={selectedSession ?? null}
           query={searchQuery}
           onClose={() => setSelectedSpanId(null)}
+          onOpenSession={(sessionId) => {
+            setSessionRange("all");
+            setSelectedSessionId(sessionId);
+          }}
         />
       </div>
     </div>
