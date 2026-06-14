@@ -21,7 +21,7 @@ a standalone session timeline (waterfall) explorer.
 - **Productivity** — lines added/removed, message counts per session
 - **TraceQL tables** — LLM calls (prompt → model → outcome) and tool calls (tool → params → result)
 - **Trace → Logs linking** — click a span in Grafana to jump to matching Loki logs
-- **Session Explorer** — standalone waterfall UI with narrative, stat cards, and per-span detail
+- **Trace Explorer** — React/FastAPI waterfall SPA with nested span trees, subagent linking, and time-range filter
 - **Dashboard filters** — `session_id`, `model`, and `agent` template variables apply to every panel
 
 ## Architecture
@@ -37,7 +37,7 @@ OpenTelemetry Collector
         └── Tempo       (LLM + tool call traces)
         │
         ▼
-Grafana (dashboards) + Session Explorer (standalone waterfall UI)
+Grafana (dashboards) + Trace Explorer (standalone waterfall UI)
 ```
 
 | Service | Purpose | Port | UI |
@@ -46,8 +46,7 @@ Grafana (dashboards) + Session Explorer (standalone waterfall UI)
 | **Prometheus** | Metrics storage | 9090 | http://localhost:9090 |
 | **Loki** | Log aggregation | 3100 | — |
 | **Tempo** | Trace storage | 3200 | http://localhost:3200 |
-| **Session Explorer** | Session waterfall UI | 8050 | http://localhost:8050 |
-| **Trace Explorer** | Per-session trace waterfall UI | 8060 | http://localhost:8060 |
+| **Trace Explorer** | React/FastAPI waterfall SPA | 8060 | http://localhost:8060 |
 | **Grafana** | Dashboards | 3000 | http://localhost:3000 |
 
 ## Quick Start
@@ -61,8 +60,7 @@ docker compose up -d
 
 **2. Configure OpenCode**
 
-Add the plugin to `~/.config/opencode/opencode.json` (or a project-level `opencode.json`).
-The [`opencode.json`](opencode.json) in this repo is a ready-to-use example:
+Add the plugin to `~/.config/opencode/opencode.json` (or a project-level `opencode.json`):
 
 ```json
 {
@@ -92,7 +90,6 @@ Or use `just run-opencode` to launch `opencode` with these variables already set
 | http://localhost:3000 | Grafana — "OpenCode Observability" (admin/admin) |
 | http://localhost:9090 | Prometheus |
 | http://localhost:3200 | Tempo |
-| http://localhost:8050 | Session Explorer |
 | http://localhost:8060 | Trace Explorer |
 
 ## Metrics, Logs & Traces
@@ -129,6 +126,8 @@ Key `event_name` values:
 - `opencode.tool.<name>` — one per tool call; attributes: `tool.name`, `tool.parameters`, `tool.success`, `output.value`
 - `session.id` is a **span attribute** (not resource), so TraceQL filters use `.session.id`
 
+> Traces are retained for **24 hours** by default (see `tempo.yaml`).
+
 ## Dashboard
 
 The "OpenCode Observability" dashboard ([`opencode-dashboard.json`](opencode-dashboard.json))
@@ -136,24 +135,24 @@ is filterable by `$session_id`, `$model`, and `$agent`:
 
 - **Overview** — active sessions, total cost, total tokens, tool calls, messages, lines changed
 - **Model Usage** — cost/token/request breakdowns by model and provider
-- **Agent Activity** — cost/token/request breakdowns by agent
+- **Agent & Model Activity** — cost/token/request breakdowns by agent
 - **Tool Usage** — call counts, avg duration, success rate
-- **Explainability** — LLM calls table and tool calls table via Tempo TraceQL `select()`
-- **Traces** — recent trace list with drill-down and linked Loki logs
+- **Explainability: Calls & Reasoning** — LLM calls table and tool calls table via Tempo TraceQL `select()`
+- **Traces & Drill-down** — recent trace list with drill-down and linked Loki logs
 - **Event Logs** — API requests, tool results, session lifecycle (Loki)
 
-## Session Explorer
+## Trace Explorer
 
-[`session-dashboard/`](session-dashboard/) is a Dash app (`session-dashboard` service):
+[`trace-explorer/`](trace-explorer/) is a React SPA backed by FastAPI (`trace-explorer` service, port `8060`):
 
-- Dropdown to pick any session (populated from Prometheus label values)
-- Stat cards: LLM calls, tool calls, total cost, total tokens, wall-clock time
-- Plotly waterfall of every LLM/tool call, color-coded by type
-- Generated step-by-step narrative of the session
-- Click any bar for full span detail (prompt, output, tokens, cost, finish reason)
+- Left sidebar with session list, sortable and searchable, with time-range filter (`1h`, `6h`, `24h`, `all`)
+- Stat cards: LLM calls, tool calls, total cost, total tokens, duration
+- Nested waterfall with depth-first span tree (Jaeger-style indentation)
+- Subagent linking — `task` tool spans link to child session IDs via `parent_session_id`
+- Right panel with per-span detail: collapsible JSON tree for attributes, formatted cost/token/duration values
+- Handles in-progress sessions by synthesising a placeholder root span
 
-Connects to Tempo (`TEMPO_URL`, default `http://tempo:3200`) and Prometheus
-(`PROMETHEUS_URL`, default `http://prometheus:9090`).
+Connects to Tempo (`TEMPO_URL`, default `http://tempo:3200`).
 
 ## Advanced Configuration
 
@@ -191,15 +190,21 @@ jsonData:
 ## Just Targets
 
 ```bash
-just up              # Start the stack
-just down            # Stop the stack
-just restart         # Restart the stack
-just status          # Show status and service URLs
-just logs            # Tail logs from all services
-just validate-config # Validate docker-compose and collector configs
-just setup-opencode  # Show OpenCode telemetry setup instructions
-just run-opencode    # Run opencode with telemetry env vars exported
-just clean           # Stop and remove volumes
+just up                    # Start the stack
+just down                  # Stop the stack
+just restart               # Restart the stack
+just status                # Show status and service URLs
+just logs                  # Tail logs from all services
+just logs-collector        # Tail otel-collector logs
+just logs-prometheus       # Tail prometheus logs
+just logs-tempo            # Tail tempo logs
+just logs-grafana          # Tail grafana logs
+just logs-trace-explorer   # Tail trace-explorer logs
+just dev-trace-explorer    # Run trace-explorer backend + frontend locally (port 8060)
+just validate-config       # Validate docker-compose and collector configs
+just setup-opencode        # Show OpenCode telemetry setup instructions
+just run-opencode          # Run opencode with telemetry env vars exported
+just clean                 # Stop and remove volumes
 ```
 
 ## Resources

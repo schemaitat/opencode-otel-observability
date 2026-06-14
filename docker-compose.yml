@@ -51,18 +51,6 @@ services:
     networks:
       - otel-network
 
-  session-dashboard:
-    build: ./session-dashboard
-    container_name: session-dashboard
-    environment:
-      - TEMPO_URL=http://tempo:3200
-    ports:
-      - "8050:8050"
-    restart: unless-stopped
-    depends_on: [tempo]
-    networks:
-      - otel-network
-
   trace-explorer:
     build: ./trace-explorer
     container_name: trace-explorer
