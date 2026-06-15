@@ -3,7 +3,7 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import httpx
 from fastapi import FastAPI, Query, Request
@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import tempo
+from models import Overview, SessionSummary, Span
 
 # Time-range options for the session list, in seconds. "all" means no limit.
 RANGE_SECONDS: dict[str, int | None] = {
@@ -41,7 +42,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Yields:
         Nothing; control is yielded to FastAPI while the server is running.
     """
-    app.state.http_client = httpx.AsyncClient()
+    app.state.http_client = httpx.AsyncClient(
+        limits=httpx.Limits(keepalive_expiry=30),
+    )
     try:
         yield
     finally:
@@ -72,7 +75,7 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/api/sessions")
-async def get_sessions(request: Request, time_range: _TimeRange = "24h") -> list[dict[str, Any]]:
+async def get_sessions(request: Request, time_range: _TimeRange = "24h") -> list[SessionSummary]:
     """Return per-session summaries filtered to the requested time range.
 
     Args:
@@ -82,8 +85,7 @@ async def get_sessions(request: Request, time_range: _TimeRange = "24h") -> list
             supplied as the ``range`` query parameter.
 
     Returns:
-        A list of session summary dicts sorted by start time descending.
-        See ``tempo.list_sessions`` for the full shape of each dict.
+        A list of session summaries sorted by start time descending.
     """
     return await tempo.list_sessions(
         request.app.state.http_client,
@@ -92,7 +94,7 @@ async def get_sessions(request: Request, time_range: _TimeRange = "24h") -> list
 
 
 @app.get("/api/overview")
-async def get_overview(request: Request, time_range: _TimeRange = "24h") -> dict[str, Any]:
+async def get_overview(request: Request, time_range: _TimeRange = "24h") -> Overview:
     """Return aggregated cost, token, model, agent, and tool usage.
 
     Args:
@@ -102,9 +104,8 @@ async def get_overview(request: Request, time_range: _TimeRange = "24h") -> dict
             supplied as the ``range`` query parameter.
 
     Returns:
-        An overview dict with totals, per-model/agent/tool breakdowns, recent
-        call lists, and time-series data. See ``tempo.get_overview`` for the
-        full shape.
+        An overview with totals, per-model/agent/tool breakdowns, recent
+        call lists, and time-series data.
     """
     return await tempo.get_overview(
         request.app.state.http_client,
@@ -113,7 +114,7 @@ async def get_overview(request: Request, time_range: _TimeRange = "24h") -> dict
 
 
 @app.get("/api/sessions/{session_id}/spans")
-async def get_session_spans(request: Request, session_id: str) -> list[dict[str, Any]]:
+async def get_session_spans(request: Request, session_id: str) -> list[Span]:
     """Return all spans for a session in depth-first waterfall order.
 
     Args:
@@ -122,9 +123,7 @@ async def get_session_spans(request: Request, session_id: str) -> list[dict[str,
         session_id: The session ID whose spans should be fetched.
 
     Returns:
-        An ordered list of span dicts, each containing ``trace_id``,
-        ``span_id``, ``parent_span_id``, ``span_name``, ``start_ns``,
-        ``duration_ms``, ``depth``, and ``attributes``.
+        An ordered list of spans in depth-first waterfall order.
     """
     return await tempo.get_session_spans(request.app.state.http_client, session_id)
 

@@ -160,7 +160,16 @@ A single `httpx.AsyncClient` is created at application startup via the FastAPI `
 
 ## Concurrency
 
-When fetching multiple Tempo traces in parallel, use `_fetch_traces_by_ids` rather than reimplementing the semaphore + `asyncio.gather` pattern inline. The concurrency limit is `_TRACE_FETCH_CONCURRENCY = 10`.
+When fetching multiple Tempo traces in parallel, use `_fetch_traces_by_ids` rather than reimplementing the semaphore + `asyncio.gather` pattern inline. The concurrency limit is `_TRACE_FETCH_CONCURRENCY = 25`.
+
+The semaphore is a module-level singleton (`_fetch_semaphore`) shared across all concurrent endpoint calls. Do not create a new `asyncio.Semaphore` inside a function; doing so defeats the global cap and allows simultaneous endpoint requests to collectively exceed the intended limit.
+
+## Caching
+
+Use `_cached_fetch_all_traces` instead of calling `_fetch_all_traces` directly in public endpoint handlers. It provides two guarantees:
+
+1. **TTL caching** — results are reused for `_CACHE_TTL_SECONDS` seconds, so repeated requests (e.g. browser polling) do not hit Tempo every time.
+2. **Request coalescing** — concurrent callers with the same key (e.g. `/api/sessions` and `/api/overview` on page load) share one in-flight fetch rather than each issuing their own.
 
 ## Tests
 
