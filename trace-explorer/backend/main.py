@@ -34,6 +34,11 @@ async def get_sessions(range: str = Query("24h", enum=list(RANGE_SECONDS))):
     return await tempo.list_sessions(range_seconds=RANGE_SECONDS[range])
 
 
+@app.get("/api/overview")
+async def get_overview(range: str = Query("24h", enum=list(RANGE_SECONDS))):
+    return await tempo.get_overview(range_seconds=RANGE_SECONDS[range])
+
+
 @app.get("/api/sessions/{session_id}/spans")
 async def get_session_spans(session_id: str):
     return await tempo.get_session_spans(session_id)

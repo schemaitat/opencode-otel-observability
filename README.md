@@ -2,63 +2,29 @@
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue?logo=docker)](docker-compose.yml)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://aschemaitat.github.io/opencode-otel-observability/)
 
 A self-contained observability stack for [OpenCode](https://opencode.ai), built on the
 [`@devtheops/opencode-plugin-otel`](https://www.npmjs.com/package/@devtheops/opencode-plugin-otel)
 plugin. Ships a Grafana dashboard with cost/token analytics, TraceQL-based explainability, and
 a standalone session timeline (waterfall) explorer.
 
-## Prerequisites
+## Screenshots
 
-- [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2+
-- [`just`](https://github.com/casey/just) (optional)
-- [OpenCode](https://opencode.ai) with the [`@devtheops/opencode-plugin-otel`](https://www.npmjs.com/package/@devtheops/opencode-plugin-otel) plugin
+| Grafana dashboard | Trace Explorer — Overview |
+|---|---|
+| ![Grafana OpenCode Observability dashboard](docs/images/grafana-overview.png) | ![Trace Explorer Overview view](docs/images/trace-explorer-overview.png) |
 
-## Features
-
-- **Cost & token analytics** — usage by model, agent, and session; breakdown by token type
-- **Tool usage** — call counts, average duration, and success rate per tool
-- **Productivity** — lines added/removed, message counts per session
-- **TraceQL tables** — LLM calls (prompt → model → outcome) and tool calls (tool → params → result)
-- **Trace → Logs linking** — click a span in Grafana to jump to matching Loki logs
-- **Trace Explorer** — React/FastAPI waterfall SPA with nested span trees, subagent linking, and time-range filter
-- **Dashboard filters** — `session_id`, `model`, and `agent` template variables apply to every panel
-
-## Architecture
-
-```
-OpenCode (@devtheops/opencode-plugin-otel)
-        │ OTLP (metrics, logs, traces)
-        ▼
-OpenTelemetry Collector
-        │
-        ├── Prometheus  (opencode_* metrics)
-        ├── Loki        (structured event logs)
-        └── Tempo       (LLM + tool call traces)
-        │
-        ▼
-Grafana (dashboards) + Trace Explorer (standalone waterfall UI)
-```
-
-| Service | Purpose | Port | UI |
-|---------|---------|------|----|
-| **OTel Collector** | Metrics/logs/traces ingestion | 4317 (gRPC), 4318 (HTTP) | — |
-| **Prometheus** | Metrics storage | 9090 | http://localhost:9090 |
-| **Loki** | Log aggregation | 3100 | — |
-| **Tempo** | Trace storage | 3200 | http://localhost:3200 |
-| **Trace Explorer** | React/FastAPI waterfall SPA | 8060 | http://localhost:8060 |
-| **Grafana** | Dashboards | 3000 | http://localhost:3000 |
+| Trace Explorer — Sessions |
+|---|
+| ![Trace Explorer Sessions view](docs/images/trace-explorer-sessions.png) |
 
 ## Quick Start
-
-**1. Start the stack**
 
 ```bash
 docker compose up -d
 # or: just up
 ```
-
-**2. Configure OpenCode**
 
 Add the plugin to `~/.config/opencode/opencode.json` (or a project-level `opencode.json`):
 
@@ -69,153 +35,49 @@ Add the plugin to `~/.config/opencode/opencode.json` (or a project-level `openco
 }
 ```
 
-Export these environment variables before running `opencode`:
+Export telemetry environment variables before running `opencode` (or use `just run-opencode`):
 
 ```bash
 export OPENCODE_ENABLE_TELEMETRY=1
 export OPENCODE_OTLP_ENDPOINT=http://localhost:4317
 export OPENCODE_OTLP_PROTOCOL=grpc
-
-# Faster export intervals for debugging
-export OPENCODE_OTLP_METRICS_INTERVAL=10000
-export OPENCODE_OTLP_LOGS_INTERVAL=5000
 ```
 
-Or use `just run-opencode` to launch `opencode` with these variables already set.
-
-**3. Open the dashboards**
+Then open:
 
 | URL | Service |
 |-----|---------|
 | http://localhost:3000 | Grafana — "OpenCode Observability" (admin/admin) |
+| http://localhost:8060 | Trace Explorer |
 | http://localhost:9090 | Prometheus |
 | http://localhost:3200 | Tempo |
-| http://localhost:8060 | Trace Explorer |
 
-## Metrics, Logs & Traces
+See the [Quick Start guide](https://aschemaitat.github.io/opencode-otel-observability/quick-start/)
+for the full walkthrough.
 
-### Metrics (Prometheus, `opencode_*`)
+## Features
 
-Cumulative per-session counters exported via the `otel-collector` job:
+- **Cost & token analytics** — usage by model, agent, and session; breakdown by token type
+- **Tool usage** — call counts, average duration, and success rate per tool
+- **Productivity** — lines added/removed, message counts per session
+- **TraceQL tables** — LLM calls (prompt → model → outcome) and tool calls (tool → params → result)
+- **Trace → Logs linking** — click a span in Grafana to jump to matching Loki logs
+- **Trace Explorer** — React/FastAPI waterfall SPA with session timelines, subagent linking, and a
+  cross-session usage dashboard
 
-| Metric | Labels |
-|--------|--------|
-| `opencode_session_count_total` | `session_id`, `is_subagent` |
-| `opencode_cost_usage_USD_total` | `session_id`, `model`, `agent` |
-| `opencode_token_usage_tokens_total` | `session_id`, `model`, `agent`, `type` (`input`/`output`/`cache_read`/`cache_creation`/`reasoning`) |
-| `opencode_model_usage_total` | `session_id`, `model`, `agent`, `provider` |
-| `opencode_message_count_total` | `session_id`, `model`, `agent` |
-| `opencode_tool_duration_milliseconds_{count,sum,bucket}` | `session_id`, `tool_name`, `success` |
-| `opencode_lines_of_code_total` | `session_id`, `type` (`added`/`removed`) |
-| `opencode_cache_count_total` | `session_id`, `model`, `type` |
+## Documentation
 
-### Logs (Loki, `{service_name="opencode"}`)
+Full documentation is published at
+**[aschemaitat.github.io/opencode-otel-observability](https://aschemaitat.github.io/opencode-otel-observability/)**,
+or browse it directly in [`docs/`](docs/):
 
-Key `event_name` values:
-
-| Event | Key attributes |
-|-------|----------------|
-| `api_request` | `model`, `duration_ms`, token counts, `cost_usd`, `provider`, `session_id` |
-| `tool_result` | `tool_name`, `success`, `duration_ms`, `tool_result_size_bytes`, `session_id` |
-| `session.idle` / `session.created` / `session.error` | `total_tokens`, `total_cost_usd`, `total_messages`, `session_id` |
-| `user_prompt` | `prompt_length`, `model`, `session_id` |
-
-### Traces (Tempo, `{resource.service.name="opencode"}`)
-
-- `opencode.llm` — one per LLM call; attributes: `llm.model_name`, `llm.token_count.*`, `cost_usd`, `llm.finish_reason`, `input.value`, `output.value`
-- `opencode.tool.<name>` — one per tool call; attributes: `tool.name`, `tool.parameters`, `tool.success`, `output.value`
-- `session.id` is a **span attribute** (not resource), so TraceQL filters use `.session.id`
-
-> Traces are retained for **24 hours** by default (see `tempo.yaml`).
-
-## Dashboard
-
-The "OpenCode Observability" dashboard ([`opencode-dashboard.json`](opencode-dashboard.json))
-is filterable by `$session_id`, `$model`, and `$agent`:
-
-- **Overview** — active sessions, total cost, total tokens, tool calls, messages, lines changed
-- **Model Usage** — cost/token/request breakdowns by model and provider
-- **Agent & Model Activity** — cost/token/request breakdowns by agent
-- **Tool Usage** — call counts, avg duration, success rate
-- **Explainability: Calls & Reasoning** — LLM calls table and tool calls table via Tempo TraceQL `select()`
-- **Traces & Drill-down** — recent trace list with drill-down and linked Loki logs
-- **Event Logs** — API requests, tool results, session lifecycle (Loki)
-
-## Trace Explorer
-
-[`trace-explorer/`](trace-explorer/) is a React SPA backed by FastAPI (`trace-explorer` service, port `8060`):
-
-- Left sidebar with session list, sortable and searchable, with time-range filter (`1h`, `6h`, `24h`, `all`)
-- Stat cards: LLM calls, tool calls, total cost, total tokens, duration
-- Nested waterfall with depth-first span tree (Jaeger-style indentation)
-- Subagent linking — `task` tool spans link to child session IDs via `parent_session_id`
-- Right panel with per-span detail: collapsible JSON tree for attributes, formatted cost/token/duration values
-- Handles in-progress sessions by synthesising a placeholder root span
-
-Connects to Tempo (`TEMPO_URL`, default `http://tempo:3200`).
-
-## Advanced Configuration
-
-### Collector ([`collector-config.yaml`](collector-config.yaml))
-
-Single OTLP receiver (gRPC `4317` / HTTP `4318`) feeding three pipelines:
-
-- **metrics** → Prometheus exporter (`:8889`)
-- **logs** → Loki via `otlphttp`
-- **traces** → Tempo via `otlp/tempo` (gRPC)
-
-A `resource` processor tags all telemetry with `environment=production`.
-
-### Tempo ([`tempo.yaml`](tempo.yaml))
-
-Local block storage with a 24h retention window. Increase
-`compactor.compaction.block_retention` for longer retention.
-
-### Trace → Logs Linking ([`grafana-datasources.yml`](grafana-datasources.yml))
-
-Maps the `session.id` span attribute to the Loki `session_id` label so clicking a span
-jumps to the matching session logs:
-
-```yaml
-jsonData:
-  tracesToLogsV2:
-    datasourceUid: loki
-    customQuery: true
-    query: '{service_name="opencode"} | session_id="${__span.tags["session.id"]}"'
-```
-
-> Note: `$` in `${__span.tags[...]}` is escaped as `$$` in the YAML to survive Grafana's
-> provisioning environment-variable interpolation.
-
-## Just Targets
-
-```bash
-just up                    # Start the stack
-just down                  # Stop the stack
-just restart               # Restart the stack
-just status                # Show status and service URLs
-just logs                  # Tail logs from all services
-just logs-collector        # Tail otel-collector logs
-just logs-prometheus       # Tail prometheus logs
-just logs-tempo            # Tail tempo logs
-just logs-grafana          # Tail grafana logs
-just logs-trace-explorer   # Tail trace-explorer logs
-just dev-trace-explorer    # Run trace-explorer backend + frontend locally (port 8060)
-just validate-config       # Validate docker-compose and collector configs
-just setup-opencode        # Show OpenCode telemetry setup instructions
-just run-opencode          # Run opencode with telemetry env vars exported
-just clean                 # Stop and remove volumes
-```
-
-## Resources
-
-- [OpenCode](https://opencode.ai)
-- [`@devtheops/opencode-plugin-otel`](https://www.npmjs.com/package/@devtheops/opencode-plugin-otel)
-- [OTel Collector docs](https://opentelemetry.io/docs/collector/)
-- [Prometheus docs](https://prometheus.io/docs/)
-- [Grafana docs](https://grafana.com/docs/)
-- [Loki docs](https://grafana.com/docs/loki/)
-- [Tempo docs](https://grafana.com/docs/tempo/)
+- [Architecture](docs/architecture.md) — how the services fit together
+- [Quick Start](docs/quick-start.md) — start the stack and connect OpenCode
+- [Metrics, Logs & Traces](docs/telemetry.md) — what's exported and how to query it
+- [Dashboard](docs/dashboard.md) — the Grafana "OpenCode Observability" dashboard
+- [Trace Explorer](docs/trace-explorer.md) — the standalone waterfall + usage dashboard UI
+- [Configuration](docs/configuration.md) — collector, Tempo, and Grafana datasource details
+- [Development](docs/development.md) — `just` targets and local dev workflow
 
 ## License
 

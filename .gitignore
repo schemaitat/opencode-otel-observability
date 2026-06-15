@@ -50,3 +50,6 @@ temp/
 
 # Local opencode plugin overrides (machine-specific absolute paths)
 .opencode/
+
+# MkDocs build output
+site/

@@ -11,6 +11,9 @@ up: ## Start the observability stack
     @echo "Tempo:            http://localhost:3200"
     @echo "Trace Explorer:   http://localhost:8060"
 
+build: ## Build all images
+    docker compose build
+
 down: ## Stop the observability stack
     docker compose down
 
@@ -42,6 +45,9 @@ dev-trace-explorer: ## Run Trace Explorer backend + frontend locally (requires `
     backend_pid=$!
     trap "kill $backend_pid" EXIT
     cd trace-explorer/frontend && npm run dev
+
+docs: ## Serve the documentation site locally
+    uvx --with mkdocs-material mkdocs serve
 
 clean: ## Remove containers and volumes
     docker compose down -v

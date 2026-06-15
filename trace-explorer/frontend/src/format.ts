@@ -29,6 +29,11 @@ export function formatTimestamp(ns: number): string {
   });
 }
 
+export function formatShortTime(ns: number): string {
+  const date = new Date(ns / 1e6);
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 export function formatRelativeTime(ns: number): string {
   const diffMs = Date.now() - ns / 1e6;
   if (diffMs < 0) return "just now";

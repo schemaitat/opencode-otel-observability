@@ -1,0 +1,47 @@
+site_name: OpenCode Observability Stack
+site_description: A self-contained observability stack for OpenCode (metrics, logs, traces, dashboards)
+site_url: https://aschemaitat.github.io/opencode-otel-observability/
+repo_name: aschemaitat/opencode-otel-observability
+repo_url: https://github.com/aschemaitat/opencode-otel-observability
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - content.code.copy
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Quick Start: quick-start.md
+  - Metrics, Logs & Traces: telemetry.md
+  - Dashboard: dashboard.md
+  - Trace Explorer: trace-explorer.md
+  - Configuration: configuration.md
+  - Development: development.md

@@ -13,6 +13,76 @@ export interface SessionSummary {
   parent_session_id: string | null;
 }
 
+export interface ModelUsage {
+  model: string;
+  calls: number;
+  cost: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+  providers: string[];
+}
+
+export interface AgentUsage {
+  agent: string;
+  calls: number;
+  cost: number;
+  total_tokens: number;
+}
+
+export interface ToolUsage {
+  tool: string;
+  calls: number;
+  total_duration_ms: number;
+  succeeded: number;
+  failed: number;
+}
+
+export interface LlmCallRow {
+  start_ns: number;
+  session_id: string;
+  agent: string;
+  model: string;
+  input: string | null;
+  finish_reason: string | null;
+  cost_usd: number;
+  duration_ms: number;
+}
+
+export interface ToolCallRow {
+  start_ns: number;
+  session_id: string;
+  tool: string;
+  parameters: string | null;
+  success: boolean | string | null;
+  output: string | null;
+  duration_ms: number;
+}
+
+export interface OverviewTimeseries {
+  bucket_starts_ns: number[];
+  cost_by_model: Record<string, number[]>;
+  tokens_by_model: Record<string, number[]>;
+  tool_calls_by_tool: Record<string, number[]>;
+}
+
+export interface Overview {
+  total_sessions: number;
+  total_cost_usd: number;
+  total_tokens: number;
+  total_llm_calls: number;
+  total_tool_calls: number;
+  by_model: ModelUsage[];
+  by_agent: AgentUsage[];
+  by_tool: ToolUsage[];
+  llm_calls: LlmCallRow[];
+  tool_calls: ToolCallRow[];
+  timeseries: OverviewTimeseries;
+}
+
 export interface SpanAttributes {
   [key: string]: string | number | boolean | null | undefined;
   "session.id"?: string;

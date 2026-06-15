@@ -57,6 +57,22 @@ async def _search(
     return resp.json().get("traces", [])
 
 
+async def _fetch_all_traces(
+    client: httpx.AsyncClient, query: str, limit: int, range_seconds: int | None
+) -> list[list[dict]]:
+    """Search for traces matching `query` and fetch each one in full (list of batches)."""
+    traces = await _search(client, query, limit=limit, range_seconds=range_seconds)
+    trace_ids = sorted({t["traceID"] for t in traces})
+
+    semaphore = asyncio.Semaphore(10)
+
+    async def fetch(tid: str) -> list[dict]:
+        async with semaphore:
+            return await _get_trace(client, tid)
+
+    return await asyncio.gather(*(fetch(tid) for tid in trace_ids))
+
+
 async def list_sessions(range_seconds: int | None = None) -> list[dict]:
     """Return per-session summaries (cost, tokens, call counts, time range).
 
@@ -166,6 +182,187 @@ async def list_sessions(range_seconds: int | None = None) -> list[dict]:
 
     result.sort(key=lambda s: s["start_ns"], reverse=True)
     return result
+
+
+_PREVIEW_LEN = 200
+
+
+def _truncate(value, length: int = _PREVIEW_LEN):
+    if value is None:
+        return None
+    s = str(value)
+    return s if len(s) <= length else s[:length] + "..."
+
+
+_NUM_BUCKETS = 60
+
+
+async def get_overview(range_seconds: int | None = None) -> dict:
+    """Aggregate cost, token, model, agent, and tool usage across all sessions.
+
+    Mirrors the "Model Usage", "Agent & Model Activity", "Tool Usage", and
+    "Explainability" sections of the Grafana dashboard, computed directly from
+    Tempo span attributes instead of Prometheus counters.
+    """
+    query = '{resource.service.name="opencode"} | select(.session.id)'
+
+    async with httpx.AsyncClient() as client:
+        full_traces = await _fetch_all_traces(client, query, limit=4000, range_seconds=range_seconds)
+
+    # Flatten into (start_ns, end_ns, attrs) tuples first so we know the
+    # overall time range before bucketing (needed for range="all").
+    records: list[tuple[int, int, dict]] = []
+    for batches in full_traces:
+        for batch in batches:
+            for scope_span in batch.get("scopeSpans", []):
+                for span in scope_span.get("spans", []):
+                    attrs = _span_attrs(span)
+                    if not attrs.get("session.id"):
+                        continue
+                    records.append((int(span["startTimeUnixNano"]), int(span["endTimeUnixNano"]), attrs))
+
+    now_ns = time.time_ns()
+    if range_seconds is not None:
+        range_start_ns = now_ns - range_seconds * 10**9
+        range_end_ns = now_ns
+    elif records:
+        range_start_ns = min(r[0] for r in records)
+        range_end_ns = max(now_ns, max(r[0] for r in records))
+    else:
+        range_start_ns = now_ns - 3600 * 10**9
+        range_end_ns = now_ns
+
+    bucket_width_ns = max(1, (range_end_ns - range_start_ns) // _NUM_BUCKETS)
+    bucket_starts_ns = [range_start_ns + i * bucket_width_ns for i in range(_NUM_BUCKETS)]
+
+    def bucket_index(start_ns: int) -> int:
+        idx = (start_ns - range_start_ns) // bucket_width_ns
+        return min(max(idx, 0), _NUM_BUCKETS - 1)
+
+    session_ids: set[str] = set()
+    by_model: dict[str, dict] = {}
+    by_agent: dict[str, dict] = {}
+    by_tool: dict[str, dict] = {}
+    llm_calls: list[dict] = []
+    tool_calls: list[dict] = []
+    cost_by_model_ts: dict[str, list[float]] = {}
+    tokens_by_model_ts: dict[str, list[int]] = {}
+    tool_calls_ts: dict[str, list[int]] = {}
+
+    for start_ns, end_ns, attrs in records:
+        session_id = attrs["session.id"]
+        session_ids.add(session_id)
+
+        duration_ms = (end_ns - start_ns) / 1e6
+        agent = attrs.get("agent.name") or "unknown"
+        bucket = bucket_index(start_ns)
+
+        if attrs.get("llm.model_name") is not None:
+            model = attrs["llm.model_name"]
+            cost = attrs.get("cost_usd") or 0
+            total_tokens = attrs.get("llm.token_count.total") or 0
+
+            m = by_model.setdefault(
+                model,
+                {
+                    "model": model,
+                    "calls": 0,
+                    "cost": 0.0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 0,
+                    "providers": set(),
+                },
+            )
+            m["calls"] += 1
+            m["cost"] += cost
+            m["prompt_tokens"] += attrs.get("llm.token_count.prompt") or 0
+            m["completion_tokens"] += attrs.get("llm.token_count.completion") or 0
+            m["cache_read_tokens"] += attrs.get("llm.token_count.prompt_details.cache_read") or 0
+            m["cache_write_tokens"] += attrs.get("llm.token_count.prompt_details.cache_write") or 0
+            m["reasoning_tokens"] += attrs.get("llm.token_count.completion_details.reasoning") or 0
+            m["total_tokens"] += total_tokens
+            if attrs.get("llm.provider"):
+                m["providers"].add(attrs["llm.provider"])
+
+            a = by_agent.setdefault(agent, {"agent": agent, "calls": 0, "cost": 0.0, "total_tokens": 0})
+            a["calls"] += 1
+            a["cost"] += cost
+            a["total_tokens"] += total_tokens
+
+            cost_by_model_ts.setdefault(model, [0.0] * _NUM_BUCKETS)[bucket] += cost
+            tokens_by_model_ts.setdefault(model, [0] * _NUM_BUCKETS)[bucket] += total_tokens
+
+            llm_calls.append(
+                {
+                    "start_ns": start_ns,
+                    "session_id": session_id,
+                    "agent": agent,
+                    "model": model,
+                    "input": _truncate(attrs.get("input.value")),
+                    "finish_reason": attrs.get("llm.finish_reason"),
+                    "cost_usd": cost,
+                    "duration_ms": duration_ms,
+                }
+            )
+        elif attrs.get("tool.name") is not None:
+            tool = attrs["tool.name"]
+            success = attrs.get("tool.success")
+            succeeded = success is True or success == "true"
+            failed = success is False or success == "false"
+
+            t = by_tool.setdefault(
+                tool,
+                {"tool": tool, "calls": 0, "total_duration_ms": 0.0, "succeeded": 0, "failed": 0},
+            )
+            t["calls"] += 1
+            t["total_duration_ms"] += duration_ms
+            if succeeded:
+                t["succeeded"] += 1
+            if failed:
+                t["failed"] += 1
+
+            tool_calls_ts.setdefault(tool, [0] * _NUM_BUCKETS)[bucket] += 1
+
+            tool_calls.append(
+                {
+                    "start_ns": start_ns,
+                    "session_id": session_id,
+                    "tool": tool,
+                    "parameters": _truncate(attrs.get("tool.parameters")),
+                    "success": success,
+                    "output": _truncate(attrs.get("output.value")),
+                    "duration_ms": duration_ms,
+                }
+            )
+
+    for m in by_model.values():
+        m["providers"] = sorted(m["providers"])
+
+    llm_calls.sort(key=lambda r: r["start_ns"], reverse=True)
+    tool_calls.sort(key=lambda r: r["start_ns"], reverse=True)
+
+    return {
+        "total_sessions": len(session_ids),
+        "total_cost_usd": sum(m["cost"] for m in by_model.values()),
+        "total_tokens": sum(m["total_tokens"] for m in by_model.values()),
+        "total_llm_calls": len(llm_calls),
+        "total_tool_calls": len(tool_calls),
+        "by_model": sorted(by_model.values(), key=lambda m: m["cost"], reverse=True),
+        "by_agent": sorted(by_agent.values(), key=lambda a: a["cost"], reverse=True),
+        "by_tool": sorted(by_tool.values(), key=lambda t: t["calls"], reverse=True),
+        "llm_calls": llm_calls[:100],
+        "tool_calls": tool_calls[:100],
+        "timeseries": {
+            "bucket_starts_ns": bucket_starts_ns,
+            "cost_by_model": cost_by_model_ts,
+            "tokens_by_model": tokens_by_model_ts,
+            "tool_calls_by_tool": tool_calls_ts,
+        },
+    }
 
 
 async def get_session_spans(session_id: str) -> list[dict]:
