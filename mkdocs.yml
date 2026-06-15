@@ -1,8 +1,8 @@
 site_name: OpenCode Observability Stack
 site_description: A self-contained observability stack for OpenCode (metrics, logs, traces, dashboards)
-site_url: https://aschemaitat.github.io/opencode-otel-observability/
-repo_name: aschemaitat/opencode-otel-observability
-repo_url: https://github.com/aschemaitat/opencode-otel-observability
+site_url: https://schemaitat.github.io/opencode-otel-observability/
+repo_name: schemaitat/opencode-otel-observability
+repo_url: https://github.com/schemaitat/opencode-otel-observability
 edit_uri: edit/main/docs/
 
 theme:

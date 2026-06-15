@@ -35,4 +35,4 @@ a standalone session timeline (waterfall) explorer.
 
 ## License
 
-[MIT](https://github.com/aschemaitat/opencode-otel-observability/blob/main/LICENSE)
+[MIT](https://github.com/schemaitat/opencode-otel-observability/blob/main/LICENSE)
