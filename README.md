@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue?logo=docker)](docker-compose.yml)
-[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://aschemaitat.github.io/opencode-otel-observability/)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://schemaitat.github.io/opencode-otel-observability/)
 
 A self-contained observability stack for [OpenCode](https://opencode.ai), built on the
 [`@devtheops/opencode-plugin-otel`](https://www.npmjs.com/package/@devtheops/opencode-plugin-otel)
@@ -52,7 +52,7 @@ Then open:
 | http://localhost:9090 | Prometheus |
 | http://localhost:3200 | Tempo |
 
-See the [Quick Start guide](https://aschemaitat.github.io/opencode-otel-observability/quick-start/)
+See the [Quick Start guide](https://schemaitat.github.io/opencode-otel-observability/quick-start/)
 for the full walkthrough.
 
 ## Features
@@ -68,7 +68,7 @@ for the full walkthrough.
 ## Documentation
 
 Full documentation is published at
-**[aschemaitat.github.io/opencode-otel-observability](https://aschemaitat.github.io/opencode-otel-observability/)**,
+**[schemaitat.github.io/opencode-otel-observability](https://schemaitat.github.io/opencode-otel-observability/)**,
 or browse it directly in [`docs/`](docs/):
 
 - [Architecture](docs/architecture.md) — how the services fit together
