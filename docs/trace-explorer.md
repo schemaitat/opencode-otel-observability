@@ -1,6 +1,6 @@
 # Trace Explorer
 
-[`trace-explorer/`](https://github.com/aschemaitat/opencode-otel-observability/tree/main/trace-explorer)
+[`trace-explorer/`](https://github.com/schemaitat/opencode-otel-observability/tree/main/trace-explorer)
 is a React SPA backed by FastAPI (`trace-explorer` service, port `8060`).
 It has two views, switchable from the header:
 
@@ -32,3 +32,15 @@ attributes:
 ![Trace Explorer Overview view](images/trace-explorer-overview.png)
 
 Connects to Tempo (`TEMPO_URL`, default `http://tempo:3200`).
+
+## Configuration
+
+| Variable | Default | Description |
+|----------|---------|--------------|
+| `TEMPO_URL` | `http://tempo:3200` | Backend: base URL of the Tempo HTTP API. |
+| `CACHE_TTL_SECONDS` | `20` (set to `2` in `docker-compose.yml`) | Backend: how long fetched trace data is cached before re-querying Tempo. Lower values make the UI feel more "live" at the cost of more frequent Tempo queries. |
+| `VITE_SESSIONS_POLL_MS` | `5000` (set to `2000`) | Frontend: poll interval for the session list. |
+| `VITE_OVERVIEW_POLL_MS` | `10000` (set to `3000`) | Frontend: poll interval for the overview dashboard. |
+| `VITE_SPANS_POLL_MS` | `4000` (set to `1500`) | Frontend: poll interval for the selected session's span waterfall. |
+
+The `VITE_*` variables are read at build time. They're set in `frontend/.env` for local dev/build and as Docker build args in `docker-compose.yml` for the containerized build.

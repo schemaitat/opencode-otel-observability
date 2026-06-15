@@ -13,6 +13,12 @@ import type { Span } from "./types";
 
 type View = "sessions" | "overview";
 
+// Polling intervals, configurable via env vars so the UI can be tuned to feel
+// more "live" without a rebuild. Fall back to the previous hardcoded values.
+const SESSIONS_POLL_MS = Number(import.meta.env.VITE_SESSIONS_POLL_MS) || 5000;
+const OVERVIEW_POLL_MS = Number(import.meta.env.VITE_OVERVIEW_POLL_MS) || 10000;
+const SPANS_POLL_MS = Number(import.meta.env.VITE_SPANS_POLL_MS) || 4000;
+
 function App() {
   const [view, setView] = useState<View>("sessions");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -24,19 +30,19 @@ function App() {
 
   const { data: sessions = [], loading: sessionsLoading } = usePolling(
     () => fetchSessions(sessionRange),
-    5000,
+    SESSIONS_POLL_MS,
     [sessionRange],
   );
 
   const { data: overview, loading: overviewLoading } = usePolling(
     () => fetchOverview(overviewRange),
-    10000,
+    OVERVIEW_POLL_MS,
     [overviewRange, view],
   );
 
   const { data: spans = [] } = usePolling<Span[]>(
     () => (selectedSessionId ? fetchSessionSpans(selectedSessionId) : Promise.resolve([])),
-    4000,
+    SPANS_POLL_MS,
     [selectedSessionId],
   );
 

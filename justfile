@@ -77,8 +77,8 @@ run-opencode: ## Run opencode with OTLP telemetry pointed at this stack
     OPENCODE_ENABLE_TELEMETRY=1 \
     OPENCODE_OTLP_ENDPOINT=http://localhost:4317 \
     OPENCODE_OTLP_PROTOCOL=grpc \
-    OPENCODE_OTLP_METRICS_INTERVAL=10000 \
-    OPENCODE_OTLP_LOGS_INTERVAL=5000 \
+    OPENCODE_OTLP_METRICS_INTERVAL=2000 \
+    OPENCODE_OTLP_LOGS_INTERVAL=2000 \
     opencode
 
 setup-opencode: ## Print opencode telemetry setup instructions
@@ -90,6 +90,6 @@ setup-opencode: ## Print opencode telemetry setup instructions
     @printf '   export OPENCODE_OTLP_ENDPOINT=http://localhost:4317\n'
     @printf '   export OPENCODE_OTLP_PROTOCOL=grpc\n\n'
     @printf 'For faster debug intervals also set:\n\n'
-    @printf '   export OPENCODE_OTLP_METRICS_INTERVAL=10000\n'
-    @printf '   export OPENCODE_OTLP_LOGS_INTERVAL=5000\n\n'
+    @printf '   export OPENCODE_OTLP_METRICS_INTERVAL=2000\n'
+    @printf '   export OPENCODE_OTLP_LOGS_INTERVAL=2000\n\n'
     @printf 'Traces are viewable in Grafana (http://localhost:3000) via Tempo datasource -> Explore.\n'

@@ -6,12 +6,15 @@ OpenCode (@devtheops/opencode-plugin-otel)
         ▼
 OpenTelemetry Collector
         │
-        ├── Prometheus  (opencode_* metrics)
-        ├── Loki        (structured event logs)
-        └── Tempo       (LLM + tool call traces)
-        │
-        ▼
-Grafana (dashboards) + Trace Explorer (standalone waterfall UI)
+        ├──────────────────┬──────────────────┐
+        ▼                  ▼                  ▼
+  Prometheus           Loki               Tempo
+(opencode_* metrics) (structured logs) (LLM + tool traces)
+        │                  │                  │
+        └──────────────────┴──────────────────┘
+                           │
+                           ▼
+           Grafana (dashboards) + Trace Explorer (waterfall UI)
 ```
 
 | Service | Purpose | Port | UI |

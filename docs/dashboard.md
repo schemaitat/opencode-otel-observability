@@ -1,7 +1,7 @@
 # Dashboard
 
 The "OpenCode Observability" dashboard
-([`opencode-dashboard.json`](https://github.com/aschemaitat/opencode-otel-observability/blob/main/opencode-dashboard.json))
+([`opencode-dashboard.json`](https://github.com/schemaitat/opencode-otel-observability/blob/main/opencode-dashboard.json))
 is filterable by `$session_id`, `$model`, and `$agent`:
 
 - **Overview** — active sessions, total cost, total tokens, tool calls, messages, lines changed

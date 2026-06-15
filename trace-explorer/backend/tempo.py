@@ -38,7 +38,11 @@ _TRACE_FETCH_CONCURRENCY: int = 25
 _HTTP_TIMEOUT_SECONDS: int = 30
 _PREVIEW_LEN: int = 200
 _NUM_BUCKETS: int = 60
-_CACHE_TTL_SECONDS: float = 20.0
+
+# How long a _cached_fetch_all_traces result stays fresh before the next
+# request re-fetches from Tempo. Lower values make the UI feel more "live"
+# at the cost of more frequent Tempo queries.
+CACHE_TTL_SECONDS: float = float(os.environ.get("CACHE_TTL_SECONDS", "20"))
 
 # TraceQL query used across multiple functions.
 _QUERY_ALL_SESSIONS: str = '{resource.service.name="opencode"} | select(.session.id)'
@@ -252,7 +256,7 @@ async def _cached_fetch_all_traces(
 ) -> list[list[OtlpBatch]]:
     """Fetch all traces matching a query with TTL caching and request coalescing.
 
-    Results are cached for ``_CACHE_TTL_SECONDS`` seconds so that repeated
+    Results are cached for ``CACHE_TTL_SECONDS`` seconds so that repeated
     requests within the TTL window (e.g. a browser page reload) return
     immediately without hitting Tempo.
 
@@ -307,7 +311,7 @@ async def _cached_fetch_all_traces(
         raise
 
     future.set_result(result)
-    _request_cache[key] = (now + _CACHE_TTL_SECONDS, result)
+    _request_cache[key] = (now + CACHE_TTL_SECONDS, result)
     return result
 
 

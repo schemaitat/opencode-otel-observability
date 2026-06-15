@@ -3,6 +3,16 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+
+# Poll intervals are baked in at build time by Vite. Defaults are tuned for a
+# "live" feel; override via --build-arg if needed.
+ARG VITE_SESSIONS_POLL_MS=2000
+ARG VITE_OVERVIEW_POLL_MS=3000
+ARG VITE_SPANS_POLL_MS=1500
+ENV VITE_SESSIONS_POLL_MS=$VITE_SESSIONS_POLL_MS \
+    VITE_OVERVIEW_POLL_MS=$VITE_OVERVIEW_POLL_MS \
+    VITE_SPANS_POLL_MS=$VITE_SPANS_POLL_MS
+
 RUN npm run build
 
 FROM python:3.12.13-slim

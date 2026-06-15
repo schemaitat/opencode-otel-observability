@@ -52,10 +52,16 @@ services:
       - otel-network
 
   trace-explorer:
-    build: ./trace-explorer
+    build:
+      context: ./trace-explorer
+      args:
+        - VITE_SESSIONS_POLL_MS=2000
+        - VITE_OVERVIEW_POLL_MS=3000
+        - VITE_SPANS_POLL_MS=1500
     container_name: trace-explorer
     environment:
       - TEMPO_URL=http://tempo:3200
+      - CACHE_TTL_SECONDS=2
     ports:
       - "8060:8060"
     restart: unless-stopped

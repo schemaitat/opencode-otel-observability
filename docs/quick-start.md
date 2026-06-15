@@ -26,8 +26,8 @@ export OPENCODE_OTLP_ENDPOINT=http://localhost:4317
 export OPENCODE_OTLP_PROTOCOL=grpc
 
 # Faster export intervals for debugging
-export OPENCODE_OTLP_METRICS_INTERVAL=10000
-export OPENCODE_OTLP_LOGS_INTERVAL=5000
+export OPENCODE_OTLP_METRICS_INTERVAL=2000
+export OPENCODE_OTLP_LOGS_INTERVAL=2000
 ```
 
 Or use `just run-opencode` to launch `opencode` with these variables already set.
