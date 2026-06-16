@@ -21,7 +21,7 @@ OpenTelemetry Collector
 |---------|---------|------|----|
 | **OTel Collector** | Metrics/logs/traces ingestion | 4317 (gRPC), 4318 (HTTP) | — |
 | **Prometheus** | Metrics storage | 9090 | http://localhost:9090 |
-| **Loki** | Log aggregation | 3100 | — |
+| **Loki** | Log aggregation | 3100 | — (query via Grafana Explore) |
 | **Tempo** | Trace storage | 3200 | http://localhost:3200 |
 | **Trace Explorer** | React/FastAPI waterfall SPA | 8060 | http://localhost:8060 |
 | **Grafana** | Dashboards | 3000 | http://localhost:3000 |

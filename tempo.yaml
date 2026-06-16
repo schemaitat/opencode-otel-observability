@@ -10,6 +10,19 @@ distributor:
         http:
           endpoint: 0.0.0.0:4318
 
+ingester:
+  # Flush a trace to the backend store 3 s after its last span arrives
+  # (down from the 10 s default).  This makes recently-closed sessions
+  # appear in search results much faster.
+  trace_idle_period: 3s
+  # Check for idle traces every 3 s (down from the 30 s default), so the
+  # idle-period check fires promptly rather than potentially lagging by
+  # half a minute.
+  flush_check_period: 3s
+  # Force a block flush after 5 min of continuous writing (down from 30 m)
+  # so long-running sessions don't accumulate unbounded in-memory state.
+  max_block_duration: 5m
+
 storage:
   trace:
     backend: local

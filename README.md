@@ -64,6 +64,7 @@ for the full walkthrough.
 - **Trace → Logs linking** — click a span in Grafana to jump to matching Loki logs
 - **Trace Explorer** — React/FastAPI waterfall SPA with session timelines, subagent linking, and a
   cross-session usage dashboard
+- **Dashboard filters** — `session_id`, `model`, and `agent` template variables apply to every panel
 
 ## Documentation
 

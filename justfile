@@ -49,10 +49,6 @@ dev-trace-explorer: ## Run Trace Explorer backend + frontend locally (requires `
 docs: ## Serve the documentation site locally
     uvx --with mkdocs-material mkdocs serve
 
-clean: ## Remove containers and volumes
-    docker compose down -v
-    docker system prune -f
-
 validate-config: ## Validate all configuration files
     #!/usr/bin/env bash
     set -euo pipefail
