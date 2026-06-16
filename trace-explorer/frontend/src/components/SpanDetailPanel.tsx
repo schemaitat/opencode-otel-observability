@@ -14,19 +14,13 @@ interface SpanDetailPanelProps {
 }
 
 export function SpanDetailPanel({ span, session, query, onClose, onOpenSession }: SpanDetailPanelProps) {
-  if (!span) {
-    return (
-      <div className="flex h-full w-[30rem] shrink-0 flex-col items-center justify-center border-l border-border bg-surface p-6 text-center text-sm text-text-muted">
-        Select a span in the waterfall to inspect its details.
-      </div>
-    );
-  }
+  if (!span) return null;
 
   const kind = spanKind(span);
   const attrs = span.attributes;
 
   return (
-    <div className="flex h-full w-[30rem] shrink-0 flex-col border-l border-border bg-surface">
+    <div className="flex h-full flex-1 flex-col overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2 overflow-hidden">
           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${KIND_STYLES[kind]}`}>
@@ -39,50 +33,55 @@ export function SpanDetailPanel({ span, session, query, onClose, onOpenSession }
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        <FactGrid kind={kind} span={span} session={session} />
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left column: structured metadata */}
+        <div className="w-72 shrink-0 overflow-y-auto border-r border-border p-4">
+          <FactGrid kind={kind} span={span} session={session} />
+          <details className="mt-4">
+            <summary className="cursor-pointer text-xs text-text-muted hover:text-text">
+              All attributes
+            </summary>
+            <div className="mt-2 rounded bg-black/30 p-2 font-mono text-[11px] leading-relaxed">
+              {Object.entries(attrs)
+                .filter(([, v]) => v !== null && v !== undefined)
+                .map(([key, value]) => (
+                  <div key={key} className="flex gap-2 py-0.5">
+                    <span className="shrink-0 text-text-muted">{key}</span>
+                    <span className="truncate text-text" title={String(value)}>
+                      {String(value)}
+                    </span>
+                    <CopyButton value={String(value)} />
+                  </div>
+                ))}
+            </div>
+          </details>
+        </div>
 
-        {kind === "llm" && (
-          <>
-            <Section title="Prompt" value={attrs["input.value"]} query={query} />
-            <Section title="Response" value={attrs["output.value"]} query={query} />
-          </>
-        )}
-        {kind === "tool" && (
-          <>
-            {attrs["subagent.session_id"] && (
-              <button
-                onClick={() => onOpenSession(attrs["subagent.session_id"]!)}
-                className="mb-3 flex w-full items-center justify-between rounded bg-surface-2 p-2 text-left text-xs font-medium text-accent hover:bg-border"
-              >
-                <span>Open subagent session</span>
-                <ArrowRight size={12} />
-              </button>
-            )}
-            <Section title="Parameters" value={attrs["tool.parameters"] ?? attrs["input.value"]} query={query} />
-            <Section title="Output" value={attrs["output.value"]} query={query} />
-          </>
-        )}
-        {kind === "agent" && <Section title="Input" value={attrs["input.value"]} query={query} />}
-
-        <details className="mt-4">
-          <summary className="cursor-pointer text-xs text-text-muted hover:text-text">
-            All attributes
-          </summary>
-          <div className="mt-2 rounded bg-black/30 p-2 font-mono text-[11px] leading-relaxed">
-            {Object.entries(attrs)
-              .filter(([, v]) => v !== null && v !== undefined)
-              .map(([key, value]) => (
-                <div key={key} className="flex gap-2 py-0.5">
-                  <span className="shrink-0 text-text-muted">{key}</span>
-                  <span className="truncate text-text" title={String(value)}>
-                    {String(value)}
-                  </span>
-                  <CopyButton value={String(value)} />
-                </div>
-              ))}
-          </div>
-        </details>
+        {/* Right column: text content */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {kind === "llm" && (
+            <>
+              <Section title="Prompt" value={attrs["input.value"]} query={query} />
+              <Section title="Response" value={attrs["output.value"]} query={query} />
+            </>
+          )}
+          {kind === "tool" && (
+            <>
+              {attrs["subagent.session_id"] && (
+                <button
+                  onClick={() => onOpenSession(attrs["subagent.session_id"]!)}
+                  className="mb-3 flex w-full items-center justify-between rounded bg-surface-2 p-2 text-left text-xs font-medium text-accent hover:bg-border"
+                >
+                  <span>Open subagent session</span>
+                  <ArrowRight size={12} />
+                </button>
+              )}
+              <Section title="Parameters" value={attrs["tool.parameters"] ?? attrs["input.value"]} query={query} />
+              <Section title="Output" value={attrs["output.value"]} query={query} />
+            </>
+          )}
+          {kind === "agent" && <Section title="Input" value={attrs["input.value"]} query={query} />}
+        </div>
       </div>
     </div>
   );

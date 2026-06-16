@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Activity, LayoutDashboard, SearchCode, Waypoints } from "lucide-react";
 import { fetchOverview, fetchSessions } from "./api";
 import type { SessionRange } from "./api";
@@ -26,6 +26,8 @@ function App() {
   const [sessionRange, setSessionRange] = useState<SessionRange>("24h");
   const [overviewRange, setOverviewRange] = useState<SessionRange>("24h");
   const [showStats, setShowStats] = useState(false);
+  const [drawerHeight, setDrawerHeight] = useState(300);
+  const drawerDragRef = useRef<{ startY: number; startH: number } | null>(null);
 
   const { data: sessions = [], loading: sessionsLoading } = usePolling(
     () => fetchSessions(sessionRange),
@@ -56,6 +58,23 @@ function App() {
     setSelectedSpanId(null);
     setShowStats(false);
   }, [selectedSessionId]);
+
+  const handleDrawerResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    drawerDragRef.current = { startY: e.clientY, startH: drawerHeight };
+    const onMove = (ev: MouseEvent) => {
+      if (!drawerDragRef.current) return;
+      const delta = drawerDragRef.current.startY - ev.clientY;
+      setDrawerHeight(Math.max(150, Math.min(drawerDragRef.current.startH + delta, window.innerHeight * 0.75)));
+    };
+    const onUp = () => {
+      drawerDragRef.current = null;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
 
   const selectedSession = sessions.find((s) => s.session_id === selectedSessionId);
   const selectedSpan = spans.find((s) => s.span_id === selectedSpanId) ?? null;
@@ -119,46 +138,60 @@ function App() {
           }}
         />
       ) : (
-        <div className="flex flex-1 overflow-x-auto overflow-y-hidden">
-          <SessionList
-            sessions={sessions}
-            selectedSessionId={selectedSessionId}
-            onSelect={setSelectedSessionId}
-            loading={sessionsLoading}
-            range={sessionRange}
-            onRangeChange={setSessionRange}
-          />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex flex-1 overflow-hidden">
+            <SessionList
+              sessions={sessions}
+              selectedSessionId={selectedSessionId}
+              onSelect={setSelectedSessionId}
+              loading={sessionsLoading}
+              range={sessionRange}
+              onRangeChange={setSessionRange}
+            />
 
-          <main className="relative flex min-w-[28rem] flex-1 flex-col overflow-hidden">
-            {selectedSession ? (
-              <>
-                <SessionStats session={selectedSession} onShowStats={() => setShowStats(true)} />
-                <Waterfall
-                  spans={spans}
-                  sessionId={selectedSessionId}
-                  selectedSpanId={selectedSpanId}
-                  onSelectSpan={(span) => setSelectedSpanId(span.span_id)}
-                  searchQuery={searchQuery}
-                />
-                {showStats && <SessionStatsPanel spans={spans} onClose={() => setShowStats(false)} />}
-              </>
-            ) : (
-              <div className="flex flex-1 items-center justify-center text-text-muted">
-                {sessionsLoading ? "Loading sessions..." : "Select a session to begin."}
-              </div>
-            )}
-          </main>
+            <main className="relative flex flex-1 flex-col overflow-hidden">
+              {selectedSession ? (
+                <>
+                  <SessionStats session={selectedSession} onShowStats={() => setShowStats(true)} />
+                  <Waterfall
+                    spans={spans}
+                    sessionId={selectedSessionId}
+                    selectedSpanId={selectedSpanId}
+                    onSelectSpan={(span) => setSelectedSpanId(span.span_id)}
+                    searchQuery={searchQuery}
+                  />
+                  {showStats && <SessionStatsPanel spans={spans} onClose={() => setShowStats(false)} />}
+                </>
+              ) : (
+                <div className="flex flex-1 items-center justify-center text-text-muted">
+                  {sessionsLoading ? "Loading sessions..." : "Select a session to begin."}
+                </div>
+              )}
+            </main>
+          </div>
 
-          <SpanDetailPanel
-            span={selectedSpan}
-            session={selectedSession ?? null}
-            query={searchQuery}
-            onClose={() => setSelectedSpanId(null)}
-            onOpenSession={(sessionId) => {
-              setSessionRange("all");
-              setSelectedSessionId(sessionId);
-            }}
-          />
+          {selectedSpan && (
+            <div
+              style={{ height: drawerHeight }}
+              className="flex shrink-0 flex-col border-t border-border bg-surface"
+            >
+              <div
+                onMouseDown={handleDrawerResizeStart}
+                className="h-1.5 shrink-0 cursor-ns-resize bg-border/50 transition-colors hover:bg-accent/60"
+                title="Drag to resize"
+              />
+              <SpanDetailPanel
+                span={selectedSpan}
+                session={selectedSession ?? null}
+                query={searchQuery}
+                onClose={() => setSelectedSpanId(null)}
+                onOpenSession={(sessionId) => {
+                  setSessionRange("all");
+                  setSelectedSessionId(sessionId);
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
