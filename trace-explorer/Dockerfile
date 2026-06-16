@@ -6,12 +6,11 @@ COPY frontend/ ./
 
 # Poll intervals are baked in at build time by Vite. Defaults are tuned for a
 # "live" feel; override via --build-arg if needed.
+# Note: VITE_SPANS_POLL_MS is no longer needed — the span waterfall uses SSE.
 ARG VITE_SESSIONS_POLL_MS=2000
 ARG VITE_OVERVIEW_POLL_MS=3000
-ARG VITE_SPANS_POLL_MS=1500
 ENV VITE_SESSIONS_POLL_MS=$VITE_SESSIONS_POLL_MS \
-    VITE_OVERVIEW_POLL_MS=$VITE_OVERVIEW_POLL_MS \
-    VITE_SPANS_POLL_MS=$VITE_SPANS_POLL_MS
+    VITE_OVERVIEW_POLL_MS=$VITE_OVERVIEW_POLL_MS
 
 RUN npm run build
 

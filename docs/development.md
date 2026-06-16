@@ -6,6 +6,7 @@
 just up                    # Start the stack
 just down                  # Stop the stack
 just restart               # Restart the stack
+just build                 # Build all Docker images
 just status                # Show status and service URLs
 just logs                  # Tail logs from all services
 just logs-collector        # Tail otel-collector logs
@@ -13,12 +14,11 @@ just logs-prometheus       # Tail prometheus logs
 just logs-tempo            # Tail tempo logs
 just logs-grafana          # Tail grafana logs
 just logs-trace-explorer   # Tail trace-explorer logs
-just dev-trace-explorer    # Run trace-explorer backend + frontend locally (port 8060)
-just docs                  # Serve the documentation site locally
+just dev-trace-explorer    # Run trace-explorer backend + frontend locally (port 8060, requires `just up`)
+just docs                  # Serve the documentation site locally (http://127.0.0.1:8000)
 just validate-config       # Validate docker-compose and collector configs
 just setup-opencode        # Show OpenCode telemetry setup instructions
 just run-opencode          # Run opencode with telemetry env vars exported
-just clean                 # Stop and remove volumes
 ```
 
 ## Resources

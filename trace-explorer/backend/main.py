@@ -1,5 +1,8 @@
 """FastAPI application entry point for the Trace Explorer backend."""
 
+import asyncio
+import json
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,10 +11,14 @@ from typing import Annotated
 import httpx
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import tempo
 from models import Overview, SessionSummary, Span
+
+# How often (seconds) the SSE stream polls Tempo for span changes.
+STREAM_POLL_SECONDS: float = float(os.environ.get("STREAM_POLL_SECONDS", "0.5"))
 
 # Time-range options for the session list, in seconds. "all" means no limit.
 RANGE_SECONDS: dict[str, int | None] = {
@@ -126,6 +133,96 @@ async def get_session_spans(request: Request, session_id: str) -> list[Span]:
         An ordered list of spans in depth-first waterfall order.
     """
     return await tempo.get_session_spans(request.app.state.http_client, session_id)
+
+
+@app.get("/api/sessions/{session_id}/spans/stream")
+async def stream_session_spans(request: Request, session_id: str) -> StreamingResponse:
+    """Stream span updates for a session as Server-Sent Events.
+
+    Polls Tempo every ``STREAM_POLL_SECONDS`` (default 0.5 s) and pushes a
+    ``spans`` event whenever the span set changes.  Change detection uses a
+    ``(span_id, duration_ms)`` fingerprint rather than span IDs alone, so an
+    update is also emitted when the synthetic open-session placeholder is
+    replaced by the real root span (same ID, updated duration).  A
+    ``heartbeat`` event is emitted each cycle when nothing has changed, which
+    keeps the connection alive through proxies that close idle streams.  A
+    ``done`` event is emitted once the session closes (its root span appears
+    in Tempo, so the synthesised placeholder with ``session.is_open`` is no
+    longer needed), after which the generator exits.
+
+    SSE event types emitted:
+
+    - ``spans``     – data is a JSON array of :class:`~models.Span` objects in
+                      depth-first waterfall order.  Replace the client's full
+                      span state with this payload.
+    - ``heartbeat`` – data is ``{}``.  No state change needed.
+    - ``done``      – data is ``{}``.  The session is closed; no further events
+                      will arrive.  The client should close its ``EventSource``.
+
+    Args:
+        request: FastAPI request; used to access the shared HTTP client and to
+            detect client disconnection via ``request.is_disconnected()``.
+        session_id: The session whose span tree should be streamed.
+
+    Returns:
+        A ``StreamingResponse`` with ``Content-Type: text/event-stream``.
+    """
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        client: httpx.AsyncClient = request.app.state.http_client
+        last_fingerprint: frozenset[tuple[str, float]] = frozenset()
+        # Track consecutive fetch errors so we can back off without silently
+        # spinning in a tight loop.
+        error_count = 0
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            try:
+                spans = await tempo.get_session_spans(client, session_id)
+                error_count = 0
+            except Exception as exc:  # noqa: BLE001
+                error_count += 1
+                backoff = min(2**error_count, 30)
+                yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+                await asyncio.sleep(backoff)
+                continue
+
+            # Include duration_ms in the fingerprint so that when the session
+            # closes and the synthetic placeholder is replaced by the real root
+            # span (same span ID, updated duration), we still emit a spans event.
+            current_fingerprint = frozenset((s.span_id, s.duration_ms) for s in spans)
+
+            if current_fingerprint != last_fingerprint:
+                last_fingerprint = current_fingerprint
+                payload = json.dumps([s.model_dump() for s in spans])
+                yield f"event: spans\ndata: {payload}\n\n"
+            else:
+                yield "event: heartbeat\ndata: {}\n\n"
+
+            # A session is open as long as its root span has not yet been
+            # exported to Tempo.  The backend synthesises a placeholder root
+            # span and marks it with session.is_open = True.  Once the real
+            # root arrives the placeholder is dropped, is_open disappears, and
+            # we can stop streaming.
+            is_open = any(s.attributes.get("session.is_open") for s in spans)
+            if not is_open and spans:
+                yield "event: done\ndata: {}\n\n"
+                break
+
+            await asyncio.sleep(STREAM_POLL_SECONDS)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Prevent nginx and other reverse proxies from buffering the
+            # stream, which would delay events from reaching the browser.
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 STATIC_DIR = Path(__file__).parent / "static"

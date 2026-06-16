@@ -685,11 +685,32 @@ def _synthesize_open_session_placeholders(
 ) -> None:
     """Add placeholder root spans for sessions whose root span is still open.
 
-    While a session is running its ``opencode.session`` root span is not yet
-    exported to Tempo, but its child spans already reference its span ID as
-    ``parentSpanId``. Without a placeholder the waterfall would render those
-    children as disconnected top-level entries rather than nested under a
-    single root.
+    OpenCode flushes the ``opencode.session`` root span to Tempo only when the
+    session ends.  While the session is running, child spans (LLM calls, tool
+    calls, agent spans) have already been exported and reference the root span's
+    ID as ``parentSpanId``, but that parent is not yet in Tempo.  Without a
+    placeholder the waterfall would render those children as disconnected
+    top-level entries rather than nested under a single root.
+
+    The placeholder is constructed as follows:
+
+    - **Span ID** — the actual ``parentSpanId`` value referenced by the orphaned
+      children.  This is identical to the real root span's ID, so when the real
+      root eventually arrives in Tempo it occupies the same slot in
+      ``spans_by_id`` and the placeholder is transparently dropped (no orphans
+      remain, so the synthesis loop produces nothing).
+    - **start_ns / duration_ms** — derived from the orphaned children: ``start_ns``
+      is the earliest child start time; ``duration_ms`` covers from that start to
+      the end of the latest child (``max(child.start_ns + child.duration_ms * 1e6)``).
+      This means the placeholder expands as new child spans arrive.
+    - **session.is_open = True** — signals to the frontend that the session is
+      still running.  The waterfall renders it with a pulsing animation and a
+      "Live" badge, and the SSE stream continues until this attribute disappears.
+
+    Because the placeholder shares its span ID with the real root, the SSE
+    change-detection fingerprint must include ``duration_ms`` (not just span IDs)
+    so that the final accurate duration is pushed to the client when the real root
+    replaces the placeholder.
 
     Args:
         spans_by_id: Mutable mapping of span ID to span dict. Placeholder

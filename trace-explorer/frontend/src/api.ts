@@ -1,6 +1,6 @@
 import type { Overview, SessionSummary, Span } from "./types";
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "";
+export const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 export type SessionRange = "1h" | "6h" | "24h" | "all";
 

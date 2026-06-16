@@ -1,23 +1,22 @@
 import { useEffect, useState } from "react";
 import { Activity, LayoutDashboard, SearchCode, Waypoints } from "lucide-react";
-import { fetchOverview, fetchSessionSpans, fetchSessions } from "./api";
+import { fetchOverview, fetchSessions } from "./api";
 import type { SessionRange } from "./api";
-import { usePolling } from "./hooks";
+import { usePolling, useSpanStream } from "./hooks";
 import { SessionList } from "./components/SessionList";
 import { SessionStats } from "./components/SessionStats";
 import { SessionStatsPanel } from "./components/SessionStatsPanel";
 import { OverviewView } from "./components/OverviewView";
 import { Waterfall } from "./components/Waterfall";
 import { SpanDetailPanel } from "./components/SpanDetailPanel";
-import type { Span } from "./types";
 
 type View = "sessions" | "overview";
 
-// Polling intervals, configurable via env vars so the UI can be tuned to feel
-// more "live" without a rebuild. Fall back to the previous hardcoded values.
+// Polling intervals for sessions and overview lists, configurable via env vars.
+// The span waterfall now uses Server-Sent Events instead of polling, so
+// VITE_SPANS_POLL_MS is no longer needed.
 const SESSIONS_POLL_MS = Number(import.meta.env.VITE_SESSIONS_POLL_MS) || 5000;
 const OVERVIEW_POLL_MS = Number(import.meta.env.VITE_OVERVIEW_POLL_MS) || 10000;
-const SPANS_POLL_MS = Number(import.meta.env.VITE_SPANS_POLL_MS) || 4000;
 
 function App() {
   const [view, setView] = useState<View>("sessions");
@@ -40,11 +39,10 @@ function App() {
     [overviewRange, view],
   );
 
-  const { data: spans = [] } = usePolling<Span[]>(
-    () => (selectedSessionId ? fetchSessionSpans(selectedSessionId) : Promise.resolve([])),
-    SPANS_POLL_MS,
-    [selectedSessionId],
-  );
+  // Span waterfall uses SSE instead of polling: the server pushes updates
+  // only when the span set changes, at ~500 ms latency, rather than
+  // transmitting the full list every SPANS_POLL_MS regardless of changes.
+  const { spans } = useSpanStream(selectedSessionId);
 
   // Auto-select the most recent session on first load.
   useEffect(() => {
