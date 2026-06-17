@@ -74,4 +74,4 @@ Connects to Tempo (`TEMPO_URL`, default `http://tempo:3200`).
 | `VITE_SESSIONS_POLL_MS` | `5000` (set to `2000`) | Frontend: poll interval for the session list. |
 | `VITE_OVERVIEW_POLL_MS` | `10000` (set to `3000`) | Frontend: poll interval for the overview dashboard. |
 
-The `VITE_*` variables are read at build time. They're set in `frontend/.env` for local dev/build and as Docker build args in `docker-compose.yml` for the containerized build.
+The `VITE_*` variables are read at build time. They're set in `trace-explorer/frontend/.env` for local dev/build and as Docker build args in `docker-compose.yml` for the containerized build.

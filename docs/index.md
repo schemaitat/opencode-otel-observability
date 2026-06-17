@@ -29,7 +29,7 @@ a standalone session timeline (waterfall) explorer.
 - [Quick Start](quick-start.md) — start the stack and connect OpenCode
 - [Metrics, Logs & Traces](telemetry.md) — what's exported and how to query it
 - [Dashboard](dashboard.md) — the Grafana "OpenCode Observability" dashboard
-- [Trace Explorer](trace-explorer.md) — the standalone waterfall UI
+- [Trace Explorer](trace-explorer.md) — waterfall session timeline + cross-session usage dashboard
 - [Configuration](configuration.md) — collector, Tempo, and Grafana datasource details
 - [Development](development.md) — `just` targets and local dev workflow
 

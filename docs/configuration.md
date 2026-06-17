@@ -8,7 +8,7 @@ Single OTLP receiver (gRPC `4317` / HTTP `4318`) feeding three pipelines:
 - **logs** → Loki via `otlphttp`
 - **traces** → Tempo via `otlp/tempo` (gRPC)
 
-A `resource` processor tags all telemetry with `environment=production`.
+A `resource` processor tags all telemetry with `environment=production`. Change the value in `collector-config.yaml` to match your environment.
 
 ## Tempo ([`tempo.yaml`](https://github.com/schemaitat/opencode-otel-observability/blob/main/tempo.yaml))
 

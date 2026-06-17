@@ -38,8 +38,8 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Architecture: architecture.md
   - Quick Start: quick-start.md
+  - Architecture: architecture.md
   - Metrics, Logs & Traces: telemetry.md
   - Dashboard: dashboard.md
   - Trace Explorer: trace-explorer.md

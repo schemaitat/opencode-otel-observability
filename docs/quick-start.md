@@ -38,5 +38,6 @@ Or use `just run-opencode` to launch `opencode` with these variables already set
 |-----|---------|
 | http://localhost:3000 | Grafana — "OpenCode Observability" (admin/admin) |
 | http://localhost:9090 | Prometheus |
+| http://localhost:3100 | Loki — no UI; query via Grafana Explore |
 | http://localhost:3200 | Tempo |
 | http://localhost:8060 | Trace Explorer |
