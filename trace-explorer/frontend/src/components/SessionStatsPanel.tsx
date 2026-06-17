@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import type { Span } from "../types";
 import { spanKind } from "../types";
 import { formatCost, formatDuration, formatTokens } from "../format";
+import { SummaryCard } from "./SummaryCard";
 
 interface SessionStatsPanelProps {
   spans: Span[];
@@ -232,15 +233,6 @@ export function SessionStatsPanel({ spans, onClose }: SessionStatsPanelProps) {
           </Section>
         </div>
       </div>
-    </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded bg-surface-2 p-2">
-      <div className="text-[10px] uppercase text-text-muted">{label}</div>
-      <div className="text-sm font-semibold">{value}</div>
     </div>
   );
 }

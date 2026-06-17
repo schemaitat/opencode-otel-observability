@@ -4,6 +4,13 @@ export const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 export type SessionRange = "1h" | "6h" | "24h" | "all";
 
+export const RANGE_OPTIONS: [SessionRange, string][] = [
+  ["1h", "1h"],
+  ["6h", "6h"],
+  ["24h", "24h"],
+  ["all", "All"],
+];
+
 export async function fetchSessions(range: SessionRange = "24h"): Promise<SessionSummary[]> {
   const res = await fetch(`${BASE_URL}/api/sessions?range=${range}`);
   if (!res.ok) throw new Error(`Failed to load sessions: ${res.status}`);

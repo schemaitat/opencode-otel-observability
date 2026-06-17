@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Activity, LayoutDashboard, SearchCode, Waypoints } from "lucide-react";
+import { ToggleButton } from "./components/ToggleButton";
 import { fetchOverview, fetchSessions } from "./api";
 import type { SessionRange } from "./api";
 import { usePolling, useSpanStream } from "./hooks";
@@ -86,27 +87,15 @@ function App() {
         <h1 className="text-sm font-semibold">Trace Explorer</h1>
         <span className="text-xs text-text-muted">OpenCode session traces</span>
 
-        <div className="ml-4 flex items-center gap-1 text-xs">
-          <button
-            onClick={() => setView("sessions")}
-            aria-pressed={view === "sessions"}
-            className={`flex items-center gap-1.5 rounded px-2 py-1 transition-colors ${
-              view === "sessions" ? "bg-accent text-white" : "bg-surface-2 text-text-muted hover:text-text"
-            }`}
-          >
+        <div className="ml-4 flex items-center gap-1">
+          <ToggleButton active={view === "sessions"} onClick={() => setView("sessions")}>
             <Waypoints size={13} />
             Sessions
-          </button>
-          <button
-            onClick={() => setView("overview")}
-            aria-pressed={view === "overview"}
-            className={`flex items-center gap-1.5 rounded px-2 py-1 transition-colors ${
-              view === "overview" ? "bg-accent text-white" : "bg-surface-2 text-text-muted hover:text-text"
-            }`}
-          >
+          </ToggleButton>
+          <ToggleButton active={view === "overview"} onClick={() => setView("overview")}>
             <LayoutDashboard size={13} />
             Overview
-          </button>
+          </ToggleButton>
         </div>
 
         {view === "sessions" && (

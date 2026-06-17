@@ -1,15 +1,11 @@
 import type { ReactNode } from "react";
 import type { AgentUsage, LlmCallRow, ModelUsage, Overview, ToolCallRow, ToolUsage } from "../types";
 import type { SessionRange } from "../api";
+import { RANGE_OPTIONS } from "../api";
 import { formatCost, formatDuration, formatRelativeTime, formatTokens } from "../format";
 import { HorizontalBarChart, StackedAreaChart, StackedBarChart } from "./Charts";
-
-const RANGE_OPTIONS: [SessionRange, string][] = [
-  ["1h", "1h"],
-  ["6h", "6h"],
-  ["24h", "24h"],
-  ["all", "All"],
-];
+import { SummaryCard } from "./SummaryCard";
+import { ToggleButton } from "./ToggleButton";
 
 interface OverviewViewProps {
   overview: Overview | undefined;
@@ -25,16 +21,9 @@ export function OverviewView({ overview, loading, range, onRangeChange, onOpenSe
       <div className="mb-4 flex items-center gap-2">
         <span className="text-text-muted text-xs">Range</span>
         {RANGE_OPTIONS.map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => onRangeChange(key)}
-            aria-pressed={range === key}
-            className={`rounded px-2 py-1 text-xs transition-colors ${
-              range === key ? "bg-accent text-white" : "bg-surface-2 text-text-muted hover:text-text"
-            }`}
-          >
+          <ToggleButton key={key} active={range === key} onClick={() => onRangeChange(key)}>
             {label}
-          </button>
+          </ToggleButton>
         ))}
       </div>
 
@@ -43,11 +32,11 @@ export function OverviewView({ overview, loading, range, onRangeChange, onOpenSe
       {overview && (
         <>
           <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            <SummaryCard label="Sessions" value={String(overview.total_sessions)} />
-            <SummaryCard label="Total cost" value={formatCost(overview.total_cost_usd)} />
-            <SummaryCard label="Total tokens" value={formatTokens(overview.total_tokens)} />
-            <SummaryCard label="LLM calls" value={String(overview.total_llm_calls)} />
-            <SummaryCard label="Tool calls" value={String(overview.total_tool_calls)} />
+            <SummaryCard large label="Sessions" value={String(overview.total_sessions)} />
+            <SummaryCard large label="Total cost" value={formatCost(overview.total_cost_usd)} />
+            <SummaryCard large label="Total tokens" value={formatTokens(overview.total_tokens)} />
+            <SummaryCard large label="LLM calls" value={String(overview.total_llm_calls)} />
+            <SummaryCard large label="Tool calls" value={String(overview.total_tool_calls)} />
           </div>
 
           <Section title="Cost by model (over time)">
@@ -122,15 +111,6 @@ export function OverviewView({ overview, loading, range, onRangeChange, onOpenSe
           </Section>
         </>
       )}
-    </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded bg-surface-2 p-3">
-      <div className="text-[10px] uppercase text-text-muted">{label}</div>
-      <div className="text-lg font-semibold">{value}</div>
     </div>
   );
 }

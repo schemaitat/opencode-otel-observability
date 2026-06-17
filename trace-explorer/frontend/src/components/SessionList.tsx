@@ -2,15 +2,17 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Filter } from "lucide-react";
 import type { SessionSummary } from "../types";
 import type { SessionRange } from "../api";
+import { RANGE_OPTIONS } from "../api";
 import { formatCost, formatDuration, formatRelativeTime, formatTokens } from "../format";
+import { ToggleButton } from "./ToggleButton";
 
 type SortKey = "recent" | "cost" | "duration" | "tokens";
 
-const RANGE_OPTIONS: [SessionRange, string][] = [
-  ["1h", "1h"],
-  ["6h", "6h"],
-  ["24h", "24h"],
-  ["all", "All"],
+const SORT_OPTIONS: [SortKey, string][] = [
+  ["recent", "Recent"],
+  ["cost", "Cost"],
+  ["duration", "Duration"],
+  ["tokens", "Tokens"],
 ];
 
 interface SessionListProps {
@@ -100,41 +102,18 @@ export function SessionList({ sessions, selectedSessionId, onSelect, loading, ra
           />
         </div>
         <div className="flex gap-1 text-xs">
-          {([
-            ["recent", "Recent"],
-            ["cost", "Cost"],
-            ["duration", "Duration"],
-            ["tokens", "Tokens"],
-          ] as [SortKey, string][]).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setSortKey(key)}
-              aria-pressed={sortKey === key}
-              className={`rounded px-2 py-1 transition-colors ${
-                sortKey === key
-                  ? "bg-accent text-white"
-                  : "bg-surface-2 text-text-muted hover:text-text"
-              }`}
-            >
+          {SORT_OPTIONS.map(([key, label]) => (
+            <ToggleButton key={key} active={sortKey === key} onClick={() => setSortKey(key)}>
               {label}
-            </button>
+            </ToggleButton>
           ))}
         </div>
         <div className="flex items-center gap-1 text-xs">
           <span className="text-text-muted">Range</span>
           {RANGE_OPTIONS.map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => onRangeChange(key)}
-              aria-pressed={range === key}
-              className={`rounded px-2 py-1 transition-colors ${
-                range === key
-                  ? "bg-accent text-white"
-                  : "bg-surface-2 text-text-muted hover:text-text"
-              }`}
-            >
+            <ToggleButton key={key} active={range === key} onClick={() => onRangeChange(key)}>
               {label}
-            </button>
+            </ToggleButton>
           ))}
         </div>
       </div>
