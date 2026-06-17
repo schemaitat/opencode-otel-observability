@@ -7,6 +7,7 @@ import os
 import random
 import re
 import time
+from collections.abc import Generator
 from typing import Any
 
 import httpx
@@ -17,6 +18,7 @@ from models import (
     ModelUsage,
     OtlpAttribute,
     OtlpBatch,
+    OtlpSpan,
     Overview,
     SessionSummary,
     Span,
@@ -39,58 +41,41 @@ _HTTP_TIMEOUT_SECONDS: int = 30
 _PREVIEW_LEN: int = 200
 _NUM_BUCKETS: int = 60
 
-# How long a _cached_fetch_all_traces result stays fresh before the next
-# request re-fetches from Tempo. Lower values make the UI feel more "live"
-# at the cost of more frequent Tempo queries.
 CACHE_TTL_SECONDS: float = float(os.environ.get("CACHE_TTL_SECONDS", "20"))
 
-# TraceQL query used across multiple functions.
 _QUERY_ALL_SESSIONS: str = '{resource.service.name="opencode"} | select(.session.id)'
 
 # ── Module-level concurrency and cache state ──────────────────────────────────
 
-# Single semaphore shared across all concurrent callers to enforce a global cap
-# of _TRACE_FETCH_CONCURRENCY in-flight Tempo requests. Creating it here rather
-# than inside _fetch_traces_by_ids prevents simultaneous endpoint calls (e.g.
-# /api/sessions + /api/overview on page load) from each issuing their own burst
-# of up to _TRACE_FETCH_CONCURRENCY requests and collectively overwhelming Tempo.
+# Single semaphore shared across all callers; prevents simultaneous endpoint
+# calls (e.g. /api/sessions + /api/overview on page load) from collectively
+# overwhelming Tempo.
 _fetch_semaphore: asyncio.Semaphore = asyncio.Semaphore(_TRACE_FETCH_CONCURRENCY)
 
-# TTL cache for _fetch_all_traces results, keyed by (query, limit, range_seconds).
-#
-# Entries are one of two forms:
-#   asyncio.Future[_BatchList]     — in-flight fetch; later callers coalesce onto
-#                                    this rather than starting a duplicate request.
-#   tuple[float, _BatchList]       — completed result; float is the monotonic
-#                                    expiry time after which the entry is stale.
-#
-# Because asyncio is single-threaded, the cache read-then-write in
-# _cached_fetch_all_traces is atomic — no await can interleave between
-# checking the dict and inserting the future.
+# TTL cache keyed by (query, limit, range_seconds).
+# Values are either an in-flight Future (coalesce) or (expiry, result) tuple.
 type _BatchList = list[list[OtlpBatch]]
 type _CacheEntry = asyncio.Future[_BatchList] | tuple[float, _BatchList]
 
 _request_cache: dict[tuple[str | int | None, ...], _CacheEntry] = {}
 
 
+# ── Span iteration helper ─────────────────────────────────────────────────────
+
+
+def _iter_spans(full_traces: list[list[OtlpBatch]]) -> Generator[OtlpSpan, None, None]:
+    """Yield every OtlpSpan across all batches and scope-spans in full_traces."""
+    for batches in full_traces:
+        for batch in batches:
+            for scope_span in batch.scopeSpans:
+                yield from scope_span.spans
+
+
 # ── Attribute helpers ─────────────────────────────────────────────────────────
 
 
 def _to_hex(span_id: str | None) -> str | None:
-    """Convert an OTLP JSON span/parent-span ID (base64) to hex.
-
-    The hex representation matches what Grafana's Tempo UI displays.
-    Both ``None`` and empty-string inputs return ``None`` so callers can use a
-    plain ``if parent_span_id`` check to detect root spans.
-
-    Args:
-        span_id: A base64-encoded span ID as it appears in OTLP JSON export,
-            or ``None`` / ``""`` for absent parent span IDs.
-
-    Returns:
-        The lowercase hex string, or ``None`` if the input was absent or could
-        not be decoded.
-    """
+    """Convert a base64 OTLP span ID to hex, or return None if absent/invalid."""
     if span_id is None or span_id == "":
         return None
     try:
@@ -100,17 +85,7 @@ def _to_hex(span_id: str | None) -> str | None:
 
 
 def _truncate(value: object, length: int = _PREVIEW_LEN) -> str | None:
-    """Convert a value to a string and truncate it to a maximum length.
-
-    Args:
-        value: Any value to stringify, or ``None`` to pass through as-is.
-        length: Maximum number of characters to keep. Defaults to
-            ``_PREVIEW_LEN``. Truncated strings are suffixed with ``"..."``.
-
-    Returns:
-        The (possibly truncated) string representation of ``value``, or
-        ``None`` if ``value`` is ``None``.
-    """
+    """Stringify value and truncate to length, or pass through None."""
     if value is None:
         return None
     s = str(value)
@@ -118,18 +93,7 @@ def _truncate(value: object, length: int = _PREVIEW_LEN) -> str | None:
 
 
 def _span_set_attrs(span: dict[str, Any]) -> dict[str, Any]:
-    """Return a flat key/value dict for a span as returned by ``GET /api/search``.
-
-    The search API returns span sets as plain dicts (a different shape than
-    the ``OtlpSpan`` model used for ``GET /api/traces/{id}``), so attributes
-    are parsed individually via :class:`OtlpAttribute`.
-
-    Args:
-        span: A single span dict from a search result's ``spanSet``/``spanSets``.
-
-    Returns:
-        A dict mapping each attribute key to its decoded Python value.
-    """
+    """Return a flat key/value dict for a span from GET /api/search results."""
     return {
         attr.key: attr.value.value
         for attr in (OtlpAttribute.model_validate(a) for a in span.get("attributes", []))
@@ -145,26 +109,7 @@ async def _search(
     limit: int = 1000,
     range_seconds: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Execute a TraceQL search against Tempo and return the matching trace stubs.
-
-    ``spss`` (spans per span set) is set to ``1`` because callers only use
-    ``traceID`` from the search stubs; each matching trace is fetched in full
-    via ``GET /api/traces/{id}`` for accurate span data, so a larger ``spss``
-    value would transfer and discard data unnecessarily.
-
-    Args:
-        client: Shared async HTTP client.
-        query: TraceQL query string.
-        limit: Maximum number of traces to return. Defaults to ``1000``.
-        range_seconds: When set, constrains the search to traces whose start
-            time falls within the last ``range_seconds`` seconds.
-
-    Returns:
-        A list of trace stub dicts as returned by ``GET /api/search``.
-
-    Raises:
-        httpx.HTTPStatusError: If Tempo returns a non-2xx response.
-    """
+    """Execute a TraceQL search against Tempo; return matching trace stubs."""
     params: dict[str, int | str] = {"q": query, "limit": limit, "spss": 1}
     if range_seconds is not None:
         now = int(time.time())
@@ -183,26 +128,9 @@ async def _fetch_traces_by_ids(
     client: httpx.AsyncClient,
     trace_ids: list[str],
 ) -> list[list[OtlpBatch]]:
-    """Fetch each trace in full with bounded global concurrency.
-
-    Uses the module-level ``_fetch_semaphore`` so that simultaneous endpoint
-    requests (e.g. ``/api/sessions`` and ``/api/overview`` on page load) do not
-    collectively exceed ``_TRACE_FETCH_CONCURRENCY`` in-flight Tempo requests.
-    On HTTP 429 the semaphore slot is released *before* sleeping so other
-    traces can proceed during the back-off window. Jitter is added to the sleep
-    to avoid retry storms when multiple traces are rate-limited simultaneously.
-
-    Args:
-        client: Shared async HTTP client.
-        trace_ids: Ordered list of hex trace IDs to fetch.
-
-    Returns:
-        A list of batch lists in the same order as ``trace_ids``. Each
-        element is the ``batches`` from ``GET /api/traces/{id}``.
-    """
+    """Fetch each trace in full with bounded global concurrency and 429 retry."""
 
     async def fetch(tid: str) -> list[OtlpBatch]:
-        """Fetch one trace with up to 5 retries on HTTP 429."""
         url = f"{TEMPO_URL}/api/traces/{tid}"
         resp: httpx.Response | None = None
         for attempt in range(1, 6):
@@ -212,11 +140,9 @@ async def _fetch_traces_by_ids(
                     resp.raise_for_status()
                     return TraceResponse.model_validate(resp.json()).batches
                 log.warning("Tempo rate-limited (attempt %d/5) for trace %s", attempt, tid)
-            # Semaphore is released here; sleep with jitter before retrying so
-            # other pending traces can proceed and simultaneous 429s do not all
-            # retry at the same instant.
+            # Release semaphore before sleeping so other traces can proceed.
             await asyncio.sleep(random.uniform(0, 0.2 * attempt))
-        assert resp is not None  # range(1, 6) always executes at least once
+        assert resp is not None
         raise httpx.HTTPStatusError(
             f"Rate-limited after 5 retries for trace {tid}",
             request=resp.request,
@@ -232,17 +158,7 @@ async def _fetch_all_traces(
     limit: int,
     range_seconds: int | None,
 ) -> list[list[OtlpBatch]]:
-    """Search for traces matching a query and fetch each one in full.
-
-    Args:
-        client: Shared async HTTP client.
-        query: TraceQL query string passed to ``_search``.
-        limit: Maximum number of traces to search for.
-        range_seconds: Optional time-range constraint forwarded to ``_search``.
-
-    Returns:
-        A list of batch lists, one per matching trace.
-    """
+    """Search for traces matching query and fetch each one in full."""
     traces = await _search(client, query, limit=limit, range_seconds=range_seconds)
     trace_ids = sorted({t["traceID"] for t in traces})
     return await _fetch_traces_by_ids(client, trace_ids)
@@ -254,51 +170,22 @@ async def _cached_fetch_all_traces(
     limit: int,
     range_seconds: int | None,
 ) -> list[list[OtlpBatch]]:
-    """Fetch all traces matching a query with TTL caching and request coalescing.
+    """Fetch all traces with TTL caching and request coalescing.
 
-    Results are cached for ``CACHE_TTL_SECONDS`` seconds so that repeated
-    requests within the TTL window (e.g. a browser page reload) return
-    immediately without hitting Tempo.
-
-    When two callers request the same key concurrently (e.g. ``/api/sessions``
-    and ``/api/overview`` arriving within milliseconds of each other on page
-    load), the second caller coalesces onto the first caller's in-flight
-    ``asyncio.Future`` rather than starting a duplicate search + fetch cycle.
-
-    Because asyncio is single-threaded, the cache look-up and future insertion
-    are atomic — no ``await`` occurs between them, so no two coroutines can
-    simultaneously observe a cache miss for the same key.
-
-    Args:
-        client: Shared async HTTP client.
-        query: TraceQL query string.
-        limit: Maximum number of traces to search for.
-        range_seconds: Optional time-range constraint.
-
-    Returns:
-        A list of batch lists, one per matching trace.
-
-    Raises:
-        httpx.HTTPStatusError: Propagated from the underlying fetch if Tempo
-            returns a non-2xx response. The cache entry is removed on failure
-            so the next caller retries rather than re-raising a stale exception.
+    Because asyncio is single-threaded the cache read-then-write is atomic —
+    no await can interleave, so concurrent callers coalesce onto one Future.
     """
     key: tuple[str | int | None, ...] = (query, limit, range_seconds)
     now = time.monotonic()
 
     entry = _request_cache.get(key)
 
-    # Return a fresh cached result without hitting Tempo.
     if isinstance(entry, tuple) and entry[0] > now:
         return entry[1]
 
-    # Coalesce onto an in-flight fetch started by a concurrent caller.
     if isinstance(entry, asyncio.Future) and not entry.done():
         return await entry
 
-    # No usable entry — start a new fetch. Insert the future *before* the first
-    # await so any concurrent caller that arrives while the fetch is in progress
-    # finds the future and coalesces onto it rather than starting its own fetch.
     loop = asyncio.get_running_loop()
     future: asyncio.Future[_BatchList] = loop.create_future()
     _request_cache[key] = future
@@ -319,97 +206,65 @@ async def _cached_fetch_all_traces(
 
 
 def _extract_closed_session_ids(full_traces: list[list[OtlpBatch]]) -> set[str]:
-    """Extract session IDs whose root ``opencode.session`` span has been exported.
-
-    A session is considered closed once its root ``opencode.session`` span has
-    been flushed to Tempo (which only happens when the session ends). Rather
-    than issuing a separate Tempo search, this function inspects the
-    already-fetched full trace data, avoiding an extra network round-trip.
-
-    Args:
-        full_traces: Full batch data as returned by ``_fetch_traces_by_ids``.
-
-    Returns:
-        The set of session IDs that are confirmed closed.
-    """
+    """Return session IDs whose root opencode.session span has been exported."""
     closed: set[str] = set()
-    for batches in full_traces:
-        for batch in batches:
-            for scope_span in batch.scopeSpans:
-                for span in scope_span.spans:
-                    if span.name == "opencode.session":
-                        session_id = span.attrs().get("session.id")
-                        if session_id:
-                            closed.add(str(session_id))
+    for span in _iter_spans(full_traces):
+        if span.name == "opencode.session":
+            session_id = span.attrs().get("session.id")
+            if session_id:
+                closed.add(str(session_id))
     return closed
 
 
 def _aggregate_session_spans(
     full_traces: list[list[OtlpBatch]],
 ) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
-    """Aggregate per-session stats from a collection of full traces.
-
-    Args:
-        full_traces: List of batch lists as returned by ``_fetch_traces_by_ids``.
-
-    Returns:
-        A two-tuple ``(sessions, parent_by_child)`` where ``sessions`` maps
-        session ID to an aggregated stats dict, and ``parent_by_child`` maps a
-        subagent session ID to the parent session ID that launched it via the
-        ``task`` tool.
-    """
+    """Aggregate per-session stats; return (sessions dict, parent_by_child dict)."""
     sessions: dict[str, dict[str, Any]] = {}
     parent_by_child: dict[str, str] = {}
 
-    for batches in full_traces:
-        for batch in batches:
-            for scope_span in batch.scopeSpans:
-                for span in scope_span.spans:
-                    attrs = span.attrs()
-                    session_id = attrs.get("session.id")
-                    if not session_id:
-                        continue
+    for span in _iter_spans(full_traces):
+        attrs = span.attrs()
+        session_id = attrs.get("session.id")
+        if not session_id:
+            continue
 
-                    start_ns = span.startTimeUnixNano
-                    end_ns = span.endTimeUnixNano
+        start_ns = span.startTimeUnixNano
+        end_ns = span.endTimeUnixNano
 
-                    s = sessions.setdefault(
-                        session_id,
-                        {
-                            "session_id": session_id,
-                            "start_ns": start_ns,
-                            "end_ns": end_ns,
-                            "llm_calls": 0,
-                            "tool_calls": 0,
-                            "total_cost_usd": 0.0,
-                            "total_tokens": 0,
-                            "models": set(),
-                            "agents": set(),
-                        },
-                    )
+        s = sessions.setdefault(
+            session_id,
+            {
+                "session_id": session_id,
+                "start_ns": start_ns,
+                "end_ns": end_ns,
+                "llm_calls": 0,
+                "tool_calls": 0,
+                "total_cost_usd": 0.0,
+                "total_tokens": 0,
+                "models": set(),
+                "agents": set(),
+            },
+        )
 
-                    s["start_ns"] = min(s["start_ns"], start_ns)
-                    s["end_ns"] = max(s["end_ns"], end_ns)
+        s["start_ns"] = min(s["start_ns"], start_ns)
+        s["end_ns"] = max(s["end_ns"], end_ns)
 
-                    if attrs.get("llm.model_name") is not None:
-                        s["llm_calls"] += 1
-                        s["total_cost_usd"] += attrs.get("cost_usd") or 0
-                        s["total_tokens"] += attrs.get("llm.token_count.total") or 0
-                        s["models"].add(attrs["llm.model_name"])
-                    elif attrs.get("tool.name") is not None:
-                        s["tool_calls"] += 1
+        if attrs.get("llm.model_name") is not None:
+            s["llm_calls"] += 1
+            s["total_cost_usd"] += attrs.get("cost_usd") or 0
+            s["total_tokens"] += attrs.get("llm.token_count.total") or 0
+            s["models"].add(attrs["llm.model_name"])
+        elif attrs.get("tool.name") is not None:
+            s["tool_calls"] += 1
 
-                    if attrs.get("agent.name"):
-                        s["agents"].add(attrs["agent.name"])
+        if attrs.get("agent.name"):
+            s["agents"].add(attrs["agent.name"])
 
-                    # A `task` tool call spawns a subagent in its own session; the
-                    # spawned session's ID is embedded in the result text (e.g.
-                    # `<task id="ses_..." state="completed">`), letting us link
-                    # the subagent session back to the session that launched it.
-                    if attrs.get("tool.name") == "task":
-                        match = _TASK_ID_RE.search(attrs.get("output.value") or "")
-                        if match:
-                            parent_by_child[match.group(1)] = str(session_id)
+        if attrs.get("tool.name") == "task":
+            match = _TASK_ID_RE.search(attrs.get("output.value") or "")
+            if match:
+                parent_by_child[match.group(1)] = str(session_id)
 
     return sessions, parent_by_child
 
@@ -418,20 +273,7 @@ async def list_sessions(
     client: httpx.AsyncClient,
     range_seconds: int | None = None,
 ) -> list[SessionSummary]:
-    """Return per-session summaries including cost, tokens, call counts, and time range.
-
-    Spans are classified by which attributes they carry rather than the
-    trace's root span name, since a session's LLM/tool spans may be nested
-    under an ``opencode.session`` agent span instead of being trace roots.
-
-    Args:
-        client: Shared async HTTP client.
-        range_seconds: When set, limits the search to traces active within the
-            last ``range_seconds`` seconds. Pass ``None`` to fetch all history.
-
-    Returns:
-        A list of session summaries sorted by ``start_ns`` descending.
-    """
+    """Return per-session summaries sorted by start time descending."""
     full_traces = await _cached_fetch_all_traces(
         client, _QUERY_ALL_SESSIONS, limit=4000, range_seconds=range_seconds
     )
@@ -463,29 +305,13 @@ def _compute_time_range(
     range_seconds: int | None,
     now_ns: int,
 ) -> tuple[int, int]:
-    """Compute the nanosecond time range used for time-series bucketing.
-
-    When ``range_seconds`` is ``None`` (the "all" option), the range is derived
-    from the actual span timestamps so the buckets cover the full data set.
-    Uses span ``end_ns`` (not ``start_ns``) as the upper bound to avoid
-    truncating long-running spans at the tail of the range.
-
-    Args:
-        records: Flattened list of ``(start_ns, end_ns, attrs)`` tuples.
-        range_seconds: Fixed window size in seconds, or ``None`` for "all".
-        now_ns: Current time in nanoseconds used as the range ceiling.
-
-    Returns:
-        A ``(range_start_ns, range_end_ns)`` tuple in nanoseconds. Falls back
-        to a 1-hour window ending at ``now_ns`` when ``records`` is empty and
-        ``range_seconds`` is ``None``.
-    """
+    """Return (range_start_ns, range_end_ns) for time-series bucketing."""
     if range_seconds is not None:
         return now_ns - range_seconds * 10**9, now_ns
     if records:
         return (
             min(r[0] for r in records),
-            max(now_ns, max(r[1] for r in records)),  # r[1] is end_ns
+            max(now_ns, max(r[1] for r in records)),
         )
     return now_ns - 3600 * 10**9, now_ns
 
@@ -494,37 +320,17 @@ async def get_overview(
     client: httpx.AsyncClient,
     range_seconds: int | None = None,
 ) -> Overview:
-    """Aggregate cost, token, model, agent, and tool usage across all sessions.
-
-    Mirrors the "Model Usage", "Agent & Model Activity", "Tool Usage", and
-    "Explainability" sections of the Grafana dashboard, computed directly from
-    Tempo span attributes instead of Prometheus counters.
-
-    Args:
-        client: Shared async HTTP client.
-        range_seconds: When set, limits the search to the last
-            ``range_seconds`` seconds. Pass ``None`` to aggregate all history.
-
-    Returns:
-        An overview with totals, per-model/agent/tool breakdowns, recent
-        call lists (up to 100 each, newest first), and per-bucket
-        timeseries data.
-    """
+    """Aggregate cost, token, model, agent, and tool usage across all sessions."""
     full_traces = await _cached_fetch_all_traces(
         client, _QUERY_ALL_SESSIONS, limit=4000, range_seconds=range_seconds
     )
 
-    # Flatten into (start_ns, end_ns, attrs) tuples so we know the overall time
-    # range before bucketing (required when range_seconds is None / "all").
     records: list[tuple[int, int, dict[str, Any]]] = []
-    for batches in full_traces:
-        for batch in batches:
-            for scope_span in batch.scopeSpans:
-                for span in scope_span.spans:
-                    attrs = span.attrs()
-                    if not attrs.get("session.id"):
-                        continue
-                    records.append((span.startTimeUnixNano, span.endTimeUnixNano, attrs))
+    for span in _iter_spans(full_traces):
+        attrs = span.attrs()
+        if not attrs.get("session.id"):
+            continue
+        records.append((span.startTimeUnixNano, span.endTimeUnixNano, attrs))
 
     now_ns = time.time_ns()
     range_start_ns, range_end_ns = _compute_time_range(records, range_seconds, now_ns)
@@ -533,11 +339,9 @@ async def get_overview(
     bucket_starts_ns = [range_start_ns + i * bucket_width_ns for i in range(_NUM_BUCKETS)]
 
     def bucket_index(start_ns: int) -> int:
-        """Map a span start time to its time-series bucket index (0-based, clamped)."""
         idx = (start_ns - range_start_ns) // bucket_width_ns
         return min(max(int(idx), 0), _NUM_BUCKETS - 1)
 
-    # ── Aggregation pass ─────────────────────────────────────────────────────
     session_ids: set[str] = set()
     by_model: dict[str, dict[str, Any]] = {}
     by_agent: dict[str, dict[str, Any]] = {}
@@ -612,8 +416,7 @@ async def get_overview(
         elif attrs.get("tool.name") is not None:
             tool = str(attrs["tool.name"])
             success = attrs.get("tool.success")
-            # ``tool.success`` may arrive as a native bool or as the string
-            # "true"/"false" depending on the SDK version that emitted the span.
+            # tool.success may arrive as native bool or string depending on SDK version
             succeeded = success is True or success == "true"
             failed = success is False or success == "false"
 
@@ -683,40 +486,12 @@ def _synthesize_open_session_placeholders(
     spans_by_id: dict[str, dict[str, Any]],
     session_id: str,
 ) -> None:
-    """Add placeholder root spans for sessions whose root span is still open.
+    """Insert placeholder root spans for sessions whose root hasn't been flushed yet.
 
-    OpenCode flushes the ``opencode.session`` root span to Tempo only when the
-    session ends.  While the session is running, child spans (LLM calls, tool
-    calls, agent spans) have already been exported and reference the root span's
-    ID as ``parentSpanId``, but that parent is not yet in Tempo.  Without a
-    placeholder the waterfall would render those children as disconnected
-    top-level entries rather than nested under a single root.
-
-    The placeholder is constructed as follows:
-
-    - **Span ID** — the actual ``parentSpanId`` value referenced by the orphaned
-      children.  This is identical to the real root span's ID, so when the real
-      root eventually arrives in Tempo it occupies the same slot in
-      ``spans_by_id`` and the placeholder is transparently dropped (no orphans
-      remain, so the synthesis loop produces nothing).
-    - **start_ns / duration_ms** — derived from the orphaned children: ``start_ns``
-      is the earliest child start time; ``duration_ms`` covers from that start to
-      the end of the latest child (``max(child.start_ns + child.duration_ms * 1e6)``).
-      This means the placeholder expands as new child spans arrive.
-    - **session.is_open = True** — signals to the frontend that the session is
-      still running.  The waterfall renders it with a pulsing animation and a
-      "Live" badge, and the SSE stream continues until this attribute disappears.
-
-    Because the placeholder shares its span ID with the real root, the SSE
-    change-detection fingerprint must include ``duration_ms`` (not just span IDs)
-    so that the final accurate duration is pushed to the client when the real root
-    replaces the placeholder.
-
-    Args:
-        spans_by_id: Mutable mapping of span ID to span dict. Placeholder
-            entries are inserted directly into this dict.
-        session_id: ID of the session being rendered, used to populate the
-            placeholder's ``session.id`` attribute.
+    While a session is running, child spans reference a parentSpanId that isn't
+    in Tempo yet. The placeholder uses that same ID so when the real root arrives
+    it transparently replaces it. session.is_open=True signals the SSE stream to
+    keep polling and the frontend to show a live indicator.
     """
     missing_parent_ids = {
         span["parent_span_id"]
@@ -751,20 +526,7 @@ def _synthesize_open_session_placeholders(
 
 
 def _build_ordered_spans(spans_by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return spans in depth-first order with a ``depth`` field for waterfall rendering.
-
-    Spans whose parent is not present in ``spans_by_id`` are treated as roots.
-    Siblings are sorted by ``start_ns`` at each level.
-
-    Args:
-        spans_by_id: Mapping of span ID to span dict for a single session.
-
-    Returns:
-        An ordered list of span dicts, each augmented with a ``depth`` integer
-        (0 for roots, incrementing for each nesting level).
-    """
-    # Group children by parent; spans whose parent isn't in this session's set
-    # are treated as roots (key=None).
+    """Return spans in depth-first order with a depth field for waterfall rendering."""
     children: dict[str | None, list[dict[str, Any]]] = {}
     for span in spans_by_id.values():
         parent_id = span["parent_span_id"]
@@ -777,7 +539,6 @@ def _build_ordered_spans(spans_by_id: dict[str, dict[str, Any]]) -> list[dict[st
     ordered: list[dict[str, Any]] = []
 
     def visit(span: dict[str, Any], depth: int) -> None:
-        """Append span and all descendants in DFS order."""
         ordered.append({**span, "depth": depth})
         for child in children.get(span["span_id"], []):
             visit(child, depth + 1)
@@ -792,21 +553,7 @@ async def get_session_spans(
     client: httpx.AsyncClient,
     session_id: str,
 ) -> list[Span]:
-    """Fetch the full span tree for a session in depth-first waterfall order.
-
-    A session's spans may be spread across multiple Tempo traces (flat,
-    single-span traces) or nested under a single ``opencode.session`` trace.
-    Every trace containing a span for this session is fetched in full; only
-    spans belonging to this session are kept, then returned in depth-first
-    order with ``depth`` and ``parent_span_id`` fields for waterfall rendering.
-
-    Args:
-        client: Shared async HTTP client.
-        session_id: The session whose spans should be fetched.
-
-    Returns:
-        An ordered list of spans in depth-first waterfall order.
-    """
+    """Fetch the full span tree for a session in depth-first waterfall order."""
     query = (
         f'{{resource.service.name="opencode" && .session.id="{session_id}"}} | select(.session.id)'
     )
@@ -817,37 +564,31 @@ async def get_session_spans(
     spans_by_id: dict[str, dict[str, Any]] = {}
 
     for trace_id, batches in zip(trace_ids, full_traces, strict=True):
-        for batch in batches:
-            for scope_span in batch.scopeSpans:
-                for span in scope_span.spans:
-                    attrs = span.attrs()
-                    if attrs.get("session.id") != session_id:
-                        continue
+        for span in _iter_spans([batches]):
+            attrs = span.attrs()
+            if attrs.get("session.id") != session_id:
+                continue
 
-                    # A `task` tool call spawns a subagent in its own session; the
-                    # spawned session's ID is embedded in the result text (e.g.
-                    # `<task id="ses_..." state="completed">`), so pull it out
-                    # and expose it as an attribute the frontend can link to.
-                    if attrs.get("tool.name") == "task":
-                        match = _TASK_ID_RE.search(attrs.get("output.value") or "")
-                        if match:
-                            attrs["subagent.session_id"] = match.group(1)
+            if attrs.get("tool.name") == "task":
+                match = _TASK_ID_RE.search(attrs.get("output.value") or "")
+                if match:
+                    attrs["subagent.session_id"] = match.group(1)
 
-                    span_id = _to_hex(span.spanId)
-                    parent_id = _to_hex(span.parentSpanId)
-                    start_ns = span.startTimeUnixNano
-                    end_ns = span.endTimeUnixNano
-                    if span_id is None:
-                        continue
-                    spans_by_id[span_id] = {
-                        "trace_id": trace_id,
-                        "span_id": span_id,
-                        "parent_span_id": parent_id,
-                        "span_name": span.name,
-                        "start_ns": start_ns,
-                        "duration_ms": (end_ns - start_ns) / 1e6,
-                        "attributes": attrs,
-                    }
+            span_id = _to_hex(span.spanId)
+            parent_id = _to_hex(span.parentSpanId)
+            start_ns = span.startTimeUnixNano
+            end_ns = span.endTimeUnixNano
+            if span_id is None:
+                continue
+            spans_by_id[span_id] = {
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": parent_id,
+                "span_name": span.name,
+                "start_ns": start_ns,
+                "duration_ms": (end_ns - start_ns) / 1e6,
+                "attributes": attrs,
+            }
 
     _synthesize_open_session_placeholders(spans_by_id, session_id)
     return [Span(**span) for span in _build_ordered_spans(spans_by_id)]
