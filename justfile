@@ -3,6 +3,9 @@
 default:
     @just --list
 
+setup: ## Full setup: clone+build plugin, configure opencode.json, start the stack
+    bash scripts/setup.sh
+
 up: ## Start the observability stack
     docker compose up -d
     @echo "Grafana:          http://localhost:3000 (admin/admin)"

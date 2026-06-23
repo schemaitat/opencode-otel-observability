@@ -5,7 +5,7 @@
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://schemaitat.github.io/opencode-otel-observability/)
 
 A self-contained observability stack for [OpenCode](https://opencode.ai), built on the
-[`@devtheops/opencode-plugin-otel`](https://www.npmjs.com/package/@devtheops/opencode-plugin-otel)
+[`opencode-plugin-otel`](https://github.com/schemaitat/opencode-plugin-otel)
 plugin. Ships a Grafana dashboard with cost/token analytics, TraceQL-based explainability, and
 a standalone session timeline (waterfall) explorer.
 
@@ -19,23 +19,47 @@ a standalone session timeline (waterfall) explorer.
 |---|
 | ![Trace Explorer Sessions view](docs/images/trace-explorer-sessions.png) |
 
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) with Compose v2 (`docker compose`)
+- [Bun](https://bun.sh) (to build the plugin)
+- [`just`](https://github.com/casey/just) _(optional — wraps common commands)_
+
 ## Quick Start
+
+### 1. Start the observability stack
 
 ```bash
 docker compose up -d
 # or: just up
 ```
 
-Add the plugin to `~/.config/opencode/opencode.json` (or a project-level `opencode.json`):
+### 2. Clone, build, and configure the plugin
+
+Clone the plugin fork locally and build it:
+
+```bash
+git clone https://github.com/schemaitat/opencode-plugin-otel ~/projects/opencode-plugin-otel
+cd ~/projects/opencode-plugin-otel
+bun install
+bun run build
+```
+
+Add the plugin to `~/.config/opencode/opencode.json` (merge into your existing config):
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@devtheops/opencode-plugin-otel"]
+  "plugin": ["file://<path-to>/opencode-plugin-otel"]
 }
 ```
 
-Export telemetry environment variables before running `opencode` (or use `just run-opencode`):
+Replace `<path-to>` with your absolute path (e.g., `/home/andre/projects`).
+> **Note:** `~` is not valid in a `file://` URI — use the full absolute path.
+
+### 3. Enable telemetry
+
+Export environment variables before running `opencode`:
 
 ```bash
 export OPENCODE_ENABLE_TELEMETRY=1
@@ -43,7 +67,11 @@ export OPENCODE_OTLP_ENDPOINT=http://localhost:4317
 export OPENCODE_OTLP_PROTOCOL=grpc
 ```
 
-Then open:
+Or add these to your shell profile (`.bashrc`, `.zshrc`, etc.).
+
+### 4. Access the dashboards
+
+Dashboards will be empty until you run OpenCode (step 5).
 
 | URL | Service |
 |-----|---------|
@@ -51,9 +79,42 @@ Then open:
 | http://localhost:8060 | Trace Explorer |
 | http://localhost:9090 | Prometheus |
 | http://localhost:3200 | Tempo |
+| http://localhost:4317 | OTLP collector — gRPC ingest (used by the plugin) |
+| http://localhost:3100 | Loki |
+
+### 5. Run OpenCode
+
+Now when you run `opencode`, traces and metrics will be emitted to the local OTLP collector and visible in the dashboards above.
 
 See the [Quick Start guide](https://schemaitat.github.io/opencode-otel-observability/quick-start/)
 for the full walkthrough.
+
+## Uninstall
+
+**Stop the stack:**
+
+```bash
+docker compose down
+# or: just down
+```
+
+**Remove the plugin and its config:**
+
+```bash
+rm -rf ~/projects/opencode-plugin-otel
+```
+
+Remove the plugin entry from `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "plugin": ["file:///home/you/projects/opencode-plugin-otel"]
+}
+```
+
+Delete that line (or the entire `"plugin"` key if it's the only entry).
+
+Also remove the telemetry env vars from your shell profile if you added them.
 
 ## Features
 
