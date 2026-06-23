@@ -22,8 +22,8 @@ a standalone session timeline (waterfall) explorer.
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) with Compose v2 (`docker compose`)
-- [Bun](https://bun.sh) (to build the plugin)
 - [`just`](https://github.com/casey/just) _(optional — wraps common commands)_
+- [Bun](https://bun.sh) _(only if building the plugin from source — see below)_
 
 ## Quick Start
 
@@ -34,28 +34,44 @@ docker compose up -d
 # or: just up
 ```
 
-### 2. Clone, build, and configure the plugin
+### 2. Install and configure the plugin
 
-Clone the plugin fork locally and build it:
-
-```bash
-git clone https://github.com/schemaitat/opencode-plugin-otel ~/projects/opencode-plugin-otel
-cd ~/projects/opencode-plugin-otel
-bun install
-bun run build
-```
+**Option A — npm (recommended, no build step):**
 
 Add the plugin to `~/.config/opencode/opencode.json` (merge into your existing config):
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["file://<path-to>/opencode-plugin-otel"]
+  "plugin": ["@devtheops/opencode-plugin-otel"]
 }
 ```
 
-Replace `<path-to>` with your absolute path (e.g., `/home/andre/projects`).
-> **Note:** `~` is not valid in a `file://` URI — use the full absolute path.
+OpenCode installs it automatically at startup from the npm registry. The published package includes pre-built output — no Bun required.
+
+**Option B — local `file:` path (for development/customization):**
+
+Clone and build the plugin manually first — OpenCode does not build it for you:
+
+```bash
+git clone https://github.com/DEVtheOPS/opencode-plugin-otel ~/projects/opencode-plugin-otel
+cd ~/projects/opencode-plugin-otel
+bun install
+bun run build
+```
+
+Then reference it by absolute path:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@devtheops/opencode-plugin-otel@file:/home/you/projects/opencode-plugin-otel"]
+}
+```
+
+> **Note:** `~` is not valid here — use the full absolute path. OpenCode symlinks the directory into its cache; if `dist/` is missing or stale the plugin loads silently but does nothing. Re-run `bun run build` after any source change.
+
+> **Git URLs** (e.g. `github:DEVtheOPS/opencode-plugin-otel`) do not work — the `prepare` script is absent so the build never runs and `dist/` is never produced.
 
 ### 3. Enable telemetry
 

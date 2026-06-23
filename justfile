@@ -80,6 +80,9 @@ run-opencode: ## Run opencode with OTLP telemetry pointed at this stack
     OPENCODE_OTLP_LOGS_INTERVAL=2000 \
     opencode
 
+check-otel-plugin: ## Verify the otel plugin is configured and ready
+    bash scripts/check-otel-plugin.sh
+
 setup-opencode: ## Print opencode telemetry setup instructions
     @printf 'opencode Telemetry Setup\n\n'
     @printf '1. Add the otel plugin to ~/.config/opencode/opencode.json (or project opencode.json):\n\n'
